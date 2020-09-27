@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"crypto/tls"
 	"fmt"
@@ -56,12 +57,14 @@ func tlsListener(ln net.Listener) <-chan net.Conn {
 }
 
 func connectHandler(conn net.Conn) {
-	var buf []byte
+	defer conn.Close()
+	r := bufio.NewReader(conn)
 	for {
-		_, err := conn.Read(buf)
-		fmt.Println(buf)
+		msg, err := r.ReadString('\n')
 		if err != nil {
+			logger.Println(err)
 			return
 		}
+		fmt.Println(msg)
 	}
 }
