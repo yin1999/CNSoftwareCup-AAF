@@ -1,0 +1,12 @@
+# log file
+log
+
+# CA
+CA
+
+# executable file
+*.exe
+main
+
+# config
+.vscode
