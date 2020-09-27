@@ -22,8 +22,16 @@ func main() {
 
 	config := &tls.Config{Certificates: []tls.Certificate{cert}}
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	signalHandleRegister(os.Interrupt, cancel, nil)
 	signalHandleRegister(os.Kill, cancel, nil)
 	signalListenAndServe(ctx, nil)
 	tlsListenAndServe(ctx, ":443", config)
+	stdinHandlerRegister("exit", exit, nil)
+	stdinListenerAndServe(ctx, nil)
+	select {}
+}
+
+func exit(param ...string) {
+	os.Exit(0)
 }

@@ -22,18 +22,20 @@ func tlsListenAndServe(ctx context.Context, laddr string, cfg *tls.Config) {
 		return
 	}
 	ch := tlsListener(ln)
-	for {
-		select {
-		case <-ctx.Done():
-			m.Lock()
-			ln.Close()
-			listenerClosed = true
-			m.Unlock()
-			return
-		case conn := <-ch:
-			go connectHandler(conn)
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				m.Lock()
+				ln.Close()
+				listenerClosed = true
+				m.Unlock()
+				return
+			case conn := <-ch:
+				go connectHandler(conn)
+			}
 		}
-	}
+	}()
 }
 
 func tlsListener(ln net.Listener) <-chan net.Conn {
@@ -60,11 +62,13 @@ func connectHandler(conn net.Conn) {
 	defer conn.Close()
 	r := bufio.NewReader(conn)
 	for {
-		msg, err := r.ReadString('\n')
+		msg, err := r.ReadBytes(0)
 		if err != nil {
 			logger.Println(err)
 			return
 		}
+		msg = msg[:len(msg)-1]
+		fmt.Println(len(msg))
 		fmt.Println(msg)
 	}
 }
