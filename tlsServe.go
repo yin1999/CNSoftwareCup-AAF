@@ -97,14 +97,18 @@ func tlsConnectHandler(conn net.Conn, mapping map[string]tlsHandlerFunc) {
 			return
 		}
 		cmd, data := dataSplit(msg)
-		err = mapping[cmd](conn, data)
-		switch err {
-		case errCloseConnect:
-			return
-		case nil:
-			break
-		default:
-			logger.Printf("session: %s, %v.\n", sess, err)
+		if f, ok := mapping[cmd]; ok {
+			err = f(conn, data)
+			switch err {
+			case errCloseConnect:
+				return
+			case nil:
+				break
+			default:
+				logger.Printf("session: %s, %v.\n", sess, err)
+			}
+		} else {
+			logger.Printf("Session: %s, unknow cmd: %s.\n", sess, cmd)
 		}
 	}
 }
@@ -128,7 +132,7 @@ func sessionIDGen() sessionID {
 }
 
 func sessionClose(sess sessionID) {
-	logger.Printf("sess: %s closed.\n", sess)
+	logger.Printf("Session: %s closed.\n", sess)
 	sessionMapping[sess].Close()
 	delete(sessionMapping, sess)
 }

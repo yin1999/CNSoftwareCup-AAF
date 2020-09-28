@@ -4,6 +4,9 @@ log
 # CA
 CA
 
+# login.key
+login.key
+
 # executable file
 *.exe
 main
