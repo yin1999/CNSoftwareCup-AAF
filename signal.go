@@ -6,11 +6,7 @@ import (
 	"os/signal"
 )
 
-var signalMapping map[os.Signal]func()
-
-func init() {
-	signalMapping = make(map[os.Signal]func())
-}
+var signalMapping = make(map[os.Signal]func())
 
 func signalHandleRegister(s os.Signal, handler func(), mapping map[os.Signal]func()) {
 	if mapping == nil {

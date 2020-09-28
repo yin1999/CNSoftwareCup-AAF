@@ -7,13 +7,9 @@ import (
 	"os"
 )
 
-var handlerMapping map[string]func(param ...string)
+var handlerMapping = make(map[string]func(param ...string))
 
-func init() {
-	handlerMapping = make(map[string]func(param ...string))
-}
-
-func stdinHandlerRegister(cmd string, f func(param ...string), mapping map[string]func(param ...string)) {
+func stdinHandleRegister(cmd string, f func(param ...string), mapping map[string]func(param ...string)) {
 	if mapping == nil {
 		mapping = handlerMapping
 	}
