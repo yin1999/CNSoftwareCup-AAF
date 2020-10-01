@@ -20,7 +20,8 @@ type programInfo struct {
 }
 
 const (
-	python fileType = iota
+	python2 fileType = iota
+	python3
 	golang
 )
 
@@ -79,13 +80,10 @@ func exit(param ...string) {
 }
 
 func listSession(param ...string) {
-	// length := len(param)
 	fmt.Print("Session\t\tRemoteAddr\n")
-	// if length == 0 {
 	for k, v := range sessionMapping {
 		fmt.Printf("%s\t\t%s", k, v.RemoteAddr().String())
 	}
-	// }
 }
 
 func authIn(conn net.Conn, data []byte) error {
@@ -111,11 +109,15 @@ func fileReceiver(conn net.Conn, data []byte) error {
 	}
 	fileName := "main."
 	s := programInfo{}
+	s.dir = path
 	switch data[0] {
 	case 0:
-		s.file = python
+		s.file = python2
 		fileName += "py"
 	case 1:
+		s.file = python3
+		fileName += "py"
+	case 2:
 		s.file = golang
 		fileName += "go"
 	default:
@@ -148,20 +150,25 @@ func fileReceiver(conn net.Conn, data []byte) error {
 	file.Write(buf[:length-1])
 	conn.Write([]byte(id + "\x00"))
 	file.Close()
+	if err = builder(s); err != nil {
+		conn.Write(statusErr)
+		return err
+	}
 	programMapping[programIndex(id)] = s
 	return err
 }
 
 // fileRemover
-// cmd format: "removeID" + ID
+// cmd format: "removeID"+ ":" + ID
 // return: statusErr, ID not existed; statusOK, remove this file successfully
 func fileRemover(conn net.Conn, data []byte) error {
 	id := programIndex(data)
-	if _, ok := programMapping[id]; !ok {
-		conn.Write(statusErr)
-		return errNoID
+	if v, ok := programMapping[id]; ok {
+		delete(programMapping, id)
+		os.RemoveAll(v.dir)
+		conn.Write(statusOK)
+		return nil
 	}
-	delete(programMapping, id)
-	conn.Write(statusOK)
-	return nil
+	conn.Write(statusErr)
+	return errNoID
 }
