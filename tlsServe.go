@@ -132,7 +132,22 @@ func sessionIDGen() sessionID {
 }
 
 func sessionClose(sess sessionID) {
-	logger.Printf("Session: %s closed.\n", sess)
 	sessionMapping[sess].Close()
 	delete(sessionMapping, sess)
+	logger.Printf("Session: %s closed.\n", sess)
+}
+
+// GetFreePort 获取未占用端口
+func GetFreePort() (int, error) {
+	addr, err := net.ResolveTCPAddr("tcp", "localhost:0")
+	if err != nil {
+		return 0, err
+	}
+
+	l, err := net.ListenTCP("tcp", addr)
+	if err != nil {
+		return 0, err
+	}
+	defer l.Close()
+	return l.Addr().(*net.TCPAddr).Port, nil
 }

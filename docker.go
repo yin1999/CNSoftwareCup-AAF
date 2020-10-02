@@ -5,9 +5,11 @@ import (
 	"errors"
 	"io/ioutil"
 	"os"
+	"strconv"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/go-connections/nat"
 	"github.com/moby/moby/client"
 )
 
@@ -29,37 +31,62 @@ type containerID string
 // PathType 路径类型
 type PathType byte
 
-func newProcess(ctx context.Context, p programInfo) error {
+func newProcess(ctx context.Context, p programInfo, argv string, dbList []dbInfo) (string, error) {
 	cli, err := client.NewEnvClient()
 	if err != nil {
-		return err
+		return "", err
 	}
 	cmd := []string{"sh", "-c"}
 	switch p.file {
 	case python2:
-		cmd = append(cmd, "cd /app && pip2 install -r requirements.txt && python2 main.py")
+		cmd = append(cmd, "pip2 install -r requirements.txt && python2 main.py "+argv)
 	case python3:
-		cmd = append(cmd, "cd /app && pip3 install -r requirements.txt && python3 main.py")
+		cmd = append(cmd, "pip3 install -r requirements.txt && python3 main.py "+argv)
 	case golang:
-		cmd = append(cmd, "cd /app && ./main")
+		cmd = append(cmd, "./main "+argv)
 	}
-	resp, err := cli.ContainerCreate(ctx, &container.Config{
-		Image: imageMapping[p.file],
-		Cmd:   []string{"/bin/bash"},
-	}, nil, nil, "")
-
+	pb := nat.PortBinding{HostPort: "2105"}
+	portNum, err := GetFreePort()
 	if err != nil {
-		return err
+		return "", err
 	}
+	port := strconv.Itoa(portNum)
+	exportPort := nat.Port(port + "/tcp")
+	body, err := cli.ContainerCreate(ctx, &container.Config{
+		Image:        imageMapping[p.file],
+		Cmd:          cmd,
+		WorkingDir:   "/app",
+		ExposedPorts: nat.PortSet{exportPort: struct{}{}},
+	}, &container.HostConfig{
+		PortBindings: nat.PortMap{exportPort: []nat.PortBinding{pb}},
+	}, nil, "")
+	if err != nil {
+		cli.Close()
+		return "", err
+	}
+	if err = copyToContainer(ctx, cli, body.ID, "/app/", p.dir); err != nil {
+		cli.Close()
+		return "", err
+	}
+	if err = cli.ContainerStart(ctx, body.ID, types.ContainerStartOptions{}); err != nil {
+		cli.Close()
+		return "", err
+	}
+	addIDToMapping(body.ID, port)
+	go containerListenAndServe(ctx, cli, body.ID)
+	return body.ID, nil
+}
 
-	if err = copyToContainer(ctx, cli, resp.ID, "/app/", p.dir); err != nil {
-		return err
+func containerListenAndServe(ctx context.Context, cli *client.Client, containerID string) {
+	returnCode, err := cli.ContainerWait(ctx, containerID)
+	logger.Printf("Container: %s return %d.\n", containerID, returnCode)
+	if err != nil {
+		logger.Printf("Exit with error: %s.\n", err.Error())
 	}
-
-	if err = cli.ContainerStart(ctx, resp.ID, types.ContainerStartOptions{}); err != nil {
-		return err
-	}
-	return nil
+	cli.ContainerRemove(context.Background(), containerID, types.ContainerRemoveOptions{Force: true})
+	dataRead(containerID)
+	dbInfoRemove(containerID)
+	cli.Close()
 }
 
 func copyToContainer(ctx context.Context, cli *client.Client, containerID, dst, src string) error {
@@ -90,7 +117,7 @@ func copyToContainer(ctx context.Context, cli *client.Client, containerID, dst, 
 		if err != nil {
 			return err
 		}
-		err = cli.CopyToContainer(ctx, containerID, dst, f, types.CopyToContainerOptions{})
+		err = cli.CopyToContainer(ctx, containerID, dst, f, types.CopyToContainerOptions{AllowOverwriteDirWithFile: true})
 		f.Close()
 		return err
 	default:

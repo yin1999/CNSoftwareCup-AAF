@@ -1,13 +1,16 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"crypto/tls"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -15,8 +18,9 @@ type fileType int
 
 type programIndex string
 type programInfo struct {
-	dir  string
-	file fileType
+	dir       string
+	file      fileType
+	immediate bool
 }
 
 const (
@@ -30,17 +34,22 @@ const (
 )
 
 var (
-	errAuthFailed  = errors.New("Auth failed, key error")
-	errTypeErr     = errors.New("Unknown type")
-	errEOF         = errors.New("Error EOF")
-	errNoID        = errors.New("ID not existed")
-	logger         *MultiLogger
-	key            string
-	statusOK       = []byte("ok\x00")
-	statusErr      = []byte("error\x00")
-	statusTypeErr  = []byte("typeErr\x00")
-	storePath      = "program"
-	programMapping = make(map[programIndex]programInfo)
+	errAuthFailed     = errors.New("Auth failed, key error")
+	errTypeErr        = errors.New("Unknown type")
+	errEOF            = errors.New("Error EOF")
+	errNoID           = errors.New("ID not existed")
+	errTransferErr    = errors.New("Transfer err, got wrong data")
+	errNoMapping      = errors.New("No value with this key")
+	logger            *MultiLogger
+	key               string
+	statusOK          = []byte("ok\x00")
+	statusErr         = []byte("error\x00")
+	statusTypeErr     = []byte("typeErr\x00")
+	storePath         = "program"
+	programMapping    = make(map[programIndex]programInfo)
+	tlsForDocker      = make(map[string]tlsHandlerFunc)
+	portToContainerID = make(map[string]string)
+	dbListMapping     = make(map[string][]dbInfo)
 )
 
 func init() {
@@ -49,6 +58,8 @@ func init() {
 		os.Exit(-1)
 	}
 	fmt.Fscanln(f, &key)
+	f.Close()
+	IDReader(programMapping)
 }
 
 func main() {
@@ -69,6 +80,8 @@ func main() {
 	tlsConnectHandleRegister("auth", authIn, nil)
 	tlsConnectHandleRegister("fileTransfer", fileReceiver, nil)
 	tlsConnectHandleRegister("removeID", fileRemover, nil)
+	tlsConnectHandleRegister("auth", authForDocker, tlsForDocker)
+	tlsConnectHandleRegister("dbList", dbInfoGet, tlsForDocker)
 	tlsListenAndServe(ctx, ":443", config, nil)
 	stdinHandleRegister("exit", exit, nil)
 	stdinListenerAndServe(ctx, nil)
@@ -95,8 +108,79 @@ func authIn(conn net.Conn, data []byte) error {
 	return errAuthFailed
 }
 
+func authForDocker(conn net.Conn, data []byte) error {
+	conn.Write(statusOK)
+	return nil
+}
+
+func execStart(conn net.Conn, data []byte) error {
+	if len(data) < 1 {
+		conn.Write(statusErr)
+		return errTypeErr
+	}
+	id := programIndex(data)
+	var p programInfo
+	var ok bool
+	if p, ok = programMapping[id]; !ok {
+		conn.Write(statusErr)
+		return errNoID
+	}
+	conn.Write(statusOK) // response
+	r := bufio.NewReader(conn)
+	argv, err := r.ReadString(0)
+	if err != nil {
+		conn.Write(statusErr)
+		return err
+	}
+	conn.Write(statusOK) // response
+
+	// transfer dbInfo
+	// number of database(1 byte) +
+	// db Type; db Address; db userName; db password; ....(repeat) + "\x00"
+	num := make([]byte, 1)
+	conn.Read(num)
+	dbList := make([]dbInfo, int(num[0]))
+	flag := true
+	for i := byte(0); i < num[0]; i++ {
+		dbList[i].dbType, err = r.ReadString(';')
+		if err != nil {
+			flag = false
+		}
+		dbList[i].dbAddr, err = r.ReadString(';')
+		if err != nil {
+			flag = false
+		}
+		dbList[i].dbUserName, err = r.ReadString(';')
+		if err != nil {
+			flag = false
+		}
+		dbList[i].dbPassword, err = r.ReadString(';')
+		if err != nil {
+			flag = false
+		}
+	}
+	t := make([]byte, 1)
+	conn.Read(t)
+	if t[0] != 0 || flag == false {
+		conn.Write(statusErr)
+		return errTransferErr
+	}
+	// TODO
+	// change
+	ctx := context.Background()
+	containerID, err := newProcess(ctx, p, argv, dbList)
+	if err != nil {
+		conn.Write(statusErr)
+		return err
+	}
+	dbListMapping[containerID] = dbList
+	conn.Write(statusOK) // response + containerID + "\x00"
+	conn.Write([]byte(containerID + "\x00"))
+	return err
+}
+
 // fileReceiver
-// cmd format: "fileTransfer" + ":" + fileType + fileSize(bytes) + "\x00"
+// cmd format: "fileTransfer" + ":" + type(lower bit: filetype, higher bit result type) + fileSize(bytes) + "\x00"
 // conn return: status
 // if got statusOK, then transfer the file, if got No statusMsg, it means programID to the file
 func fileReceiver(conn net.Conn, data []byte) error {
@@ -110,7 +194,7 @@ func fileReceiver(conn net.Conn, data []byte) error {
 	fileName := "main."
 	s := programInfo{}
 	s.dir = path
-	switch data[0] {
+	switch data[0] & 0x7F {
 	case 0:
 		s.file = python2
 		fileName += "py"
@@ -123,6 +207,11 @@ func fileReceiver(conn net.Conn, data []byte) error {
 	default:
 		conn.Write(statusTypeErr)
 		return errTypeErr
+	}
+	if (data[0] & 0x80) == 0x80 {
+		s.immediate = true
+	} else {
+		s.immediate = false
 	}
 	file, err := os.OpenFile(path+"/"+fileName, os.O_WRONLY|os.O_CREATE, 0644)
 	if err != nil {
@@ -171,4 +260,44 @@ func fileRemover(conn net.Conn, data []byte) error {
 	}
 	conn.Write(statusErr)
 	return errNoID
+}
+
+func connToID(conn net.Conn) string {
+	port := strings.Split(conn.RemoteAddr().String(), ":")[1]
+	if id, ok := portToContainerID[port]; ok {
+		return id
+	}
+	return ""
+}
+
+func addIDToMapping(containerID, port string) {
+	portToContainerID[port] = containerID
+}
+
+func dbInfoGet(conn net.Conn, data []byte) error {
+	id := connToID(conn)
+	if id == "" {
+		return errNoID
+	}
+	if v, ok := dbListMapping[id]; ok {
+		data, err := json.Marshal(v)
+		if err != nil {
+			conn.Write(statusErr)
+			return err
+		}
+		conn.Write(append(data, 0))
+		return err
+	}
+	return errNoMapping
+}
+
+func dbInfoRemove(containerID string) {
+	delete(dbListMapping, containerID)
+}
+
+func dataSend(conn net.Conn, data []byte) error {
+	id := connToID(conn)
+	dataStore(id, data)
+	conn.Write(statusOK)
+	return nil
 }
