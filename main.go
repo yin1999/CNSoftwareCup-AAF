@@ -113,6 +113,7 @@ func listSession(param ...string) {
 }
 
 func authIn(conn net.Conn, data []byte) error {
+	fmt.Println(len(data))
 	if string(data) == key {
 		conn.Write(statusOK)
 		return nil

@@ -60,7 +60,6 @@ func inputHandler(ctx context.Context, input chan []byte, mapping map[string]fun
 }
 
 func cmdSplit(in []byte) (command string, param []string) {
-	fmt.Println(len(in))
 	buf := make([]byte, len(in))
 	bufIndex := 0
 	cmd := true
