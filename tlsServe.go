@@ -131,7 +131,7 @@ func dataSplit(in []byte) (cmd string, data []byte) {
 }
 
 func sessionIDGen() sessionID {
-	b := make([]byte, 32)
+	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
 		return ""
 	}
