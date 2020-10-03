@@ -90,7 +90,8 @@ func tcpConnectHandler(conn net.Conn, mapping map[string]tcpHandlerFunc) {
 	defer sessionClose(sess)
 	r := bufio.NewReader(conn)
 	if f, ok := mapping["auth"]; ok {
-		err := f(conn, nil)
+		data, err := r.ReadBytes(0)
+		err = f(conn, data)
 		if err != nil {
 			logger.Println(err)
 			return
@@ -134,7 +135,7 @@ func sessionIDGen() sessionID {
 	if _, err := rand.Read(b); err != nil {
 		return ""
 	}
-	return sessionID(base64.URLEncoding.EncodeToString(b))
+	return sessionID(base64.RawStdEncoding.EncodeToString(b))
 }
 
 func sessionClose(sess sessionID) {
