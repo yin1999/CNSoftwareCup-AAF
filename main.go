@@ -296,8 +296,10 @@ func fileReceiver(conn net.Conn, data []byte) error {
 		conn.Write(statusErr)
 		return err
 	}
+	conn.Write(statusOK)
 	s.ctx, s.cancel = context.WithCancel(ctxRoot)
 	programMapping[programIndex(id)] = s
+	s.cfgStore()
 	return err
 }
 
