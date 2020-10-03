@@ -124,18 +124,23 @@ func dataSplit(in []byte) (cmd string, data []byte) {
 	i := 0
 	for i = range in {
 		if in[i] == ':' {
-			return string(in[:i+1]), in[i+1:]
+			return string(in[:i]), in[i+1:]
 		}
 	}
 	return string(in), nil
 }
 
 func sessionIDGen() sessionID {
-	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		return ""
+	b := make([]byte, 12)
+	for {
+		if _, err := rand.Read(b); err != nil {
+			return ""
+		}
+		id := sessionID(base64.RawURLEncoding.EncodeToString(b))
+		if _, ok := sessionMapping[id]; !ok {
+			return id
+		}
 	}
-	return sessionID(base64.RawURLEncoding.EncodeToString(b))
 }
 
 func sessionClose(sess sessionID) {
