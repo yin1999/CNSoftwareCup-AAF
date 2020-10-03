@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -38,20 +39,22 @@ const (
 )
 
 var (
-	ctxRoot           context.Context
-	errAuthFailed     = errors.New("Auth failed, key error")
-	errTypeErr        = errors.New("Unknown type")
-	errEOF            = errors.New("Error EOF")
-	errNoID           = errors.New("ID not existed")
-	errTransferErr    = errors.New("Transfer err, got wrong data")
-	errNoMapping      = errors.New("No value with this key")
-	logger            *MultiLogger
-	key               string
-	statusOK          = []byte("ok\x00")
-	statusErr         = []byte("error\x00")
-	statusTypeErr     = []byte("typeErr\x00")
-	storePath         = "program"
-	programMapping    = make(map[programIndex]programInfo)
+	ctxRoot        context.Context
+	errAuthFailed  = errors.New("Auth failed, key error")
+	errTypeErr     = errors.New("Unknown type")
+	errEOF         = errors.New("Error EOF")
+	errNoID        = errors.New("ID not existed")
+	errTransferErr = errors.New("Transfer err, got wrong data")
+	errNoMapping   = errors.New("No value with this key")
+	logger         *MultiLogger
+	key            string
+	statusOK       = []byte("ok\x00")
+	statusErr      = []byte("error\x00")
+	statusTypeErr  = []byte("typeErr\x00")
+	storePath      = "program"
+	programMapping = make(map[programIndex]programInfo)
+	// PWD 工作目录
+	PWD               string
 	tcpForDocker      = make(map[string]tcpHandlerFunc)
 	portToContainerID = make(map[string]string)
 	dbListMapping     = make(map[string][]dbInfo)
@@ -68,6 +71,7 @@ func init() {
 	fmt.Fscanln(f, &key)
 	f.Close()
 	IDReader(programMapping)
+	PWD = filepath.Dir(os.Args[0]) + "/"
 }
 
 func main() {
