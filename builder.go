@@ -61,7 +61,11 @@ func goBuilder(dir string) error {
 	}
 
 	// build
-	cmd.Args = []string{execGo, "build", "-ldflags", "-s -w"}
+	cmd = exec.Cmd{
+		Path: execGo,
+		Args: []string{execGo, "build", "-ldflags", "-s -w"},
+		Dir:  dir,
+	}
 	err = runCmd(&cmd)
 	return err
 }
