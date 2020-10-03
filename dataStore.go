@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"io/ioutil"
 	"log"
 	"os"
@@ -72,6 +73,7 @@ func (p *programInfo) cfgLoader(dir string) error {
 	if buf[1] == 1 {
 		p.immediate = true
 	}
+	p.ctx, p.cancel = context.WithCancel(ctxRoot)
 	return err
 }
 

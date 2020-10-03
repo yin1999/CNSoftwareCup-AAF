@@ -10,7 +10,9 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"runtime"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -21,6 +23,8 @@ type programInfo struct {
 	dir       string
 	file      fileType
 	immediate bool
+	ctx       context.Context
+	cancel    context.CancelFunc
 }
 
 const (
@@ -34,6 +38,7 @@ const (
 )
 
 var (
+	ctxRoot           context.Context
 	errAuthFailed     = errors.New("Auth failed, key error")
 	errTypeErr        = errors.New("Unknown type")
 	errEOF            = errors.New("Error EOF")
@@ -47,9 +52,12 @@ var (
 	statusTypeErr     = []byte("typeErr\x00")
 	storePath         = "program"
 	programMapping    = make(map[programIndex]programInfo)
-	tlsForDocker      = make(map[string]tlsHandlerFunc)
+	tcpForDocker      = make(map[string]tcpHandlerFunc)
 	portToContainerID = make(map[string]string)
 	dbListMapping     = make(map[string][]dbInfo)
+	processMapping    = make(map[string]context.CancelFunc)
+	connListener      net.Conn
+	listenerLock      = sync.Mutex{}
 )
 
 func init() {
@@ -72,19 +80,21 @@ func main() {
 	}
 
 	config := &tls.Config{Certificates: []tls.Certificate{cert}}
-	ctx, cancel := context.WithCancel(context.Background())
+	ctxRoot, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	signalHandleRegister(os.Interrupt, cancel, nil)
 	signalHandleRegister(os.Kill, cancel, nil)
-	signalListenAndServe(ctx, nil)
-	tlsConnectHandleRegister("auth", authIn, nil)
-	tlsConnectHandleRegister("fileTransfer", fileReceiver, nil)
-	tlsConnectHandleRegister("removeID", fileRemover, nil)
-	tlsConnectHandleRegister("auth", authForDocker, tlsForDocker)
-	tlsConnectHandleRegister("dbList", dbInfoGet, tlsForDocker)
-	tlsListenAndServe(ctx, ":443", config, nil)
+	signalListenAndServe(ctxRoot, nil)
+	tcpConnectHandleRegister("auth", authIn, nil)
+	tcpConnectHandleRegister("fileTransfer", fileReceiver, nil)
+	tcpConnectHandleRegister("removeID", fileRemover, nil)
+	tcpConnectHandleRegister("listen", statusListenRegister, nil)
+	tcpConnectHandleRegister("auth", authForDocker, tcpForDocker)
+	tcpConnectHandleRegister("dbList", dbInfoGet, tcpForDocker)
+	tcpListenAndServe(ctxRoot, ":443", config, nil)
+	tcpListenAndServe(ctxRoot, ":2076", nil, tcpForDocker)
 	stdinHandleRegister("exit", exit, nil)
-	stdinListenerAndServe(ctx, nil)
+	stdinListenerAndServe(ctxRoot, nil)
 	select {}
 }
 
@@ -111,6 +121,27 @@ func authIn(conn net.Conn, data []byte) error {
 func authForDocker(conn net.Conn, data []byte) error {
 	conn.Write(statusOK)
 	return nil
+}
+
+func statusListenRegister(conn net.Conn, data []byte) error {
+	listenerLock.Lock()
+	if connListener != nil {
+		connListener.Close()
+		runtime.SetFinalizer(connListener, nil)
+	}
+	connListener = conn
+	runtime.SetFinalizer(connListener, (net.Conn).Close)
+	listenerLock.Unlock()
+	conn.Write(statusOK)
+	return nil
+}
+
+func statusSend(data []byte) {
+	listenerLock.Lock()
+	if connListener != nil {
+		connListener.Write(data)
+	}
+	listenerLock.Unlock()
 }
 
 func execStart(conn net.Conn, data []byte) error {
@@ -167,16 +198,30 @@ func execStart(conn net.Conn, data []byte) error {
 	}
 	// TODO
 	// change
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(p.ctx)
 	containerID, err := newProcess(ctx, p, argv, dbList)
 	if err != nil {
 		conn.Write(statusErr)
+		cancel()
 		return err
 	}
 	dbListMapping[containerID] = dbList
+	processMapping[containerID] = cancel
 	conn.Write(statusOK) // response + containerID + "\x00"
 	conn.Write([]byte(containerID + "\x00"))
 	return err
+}
+
+func execStop(conn net.Conn, data []byte) error {
+	containerID := string(data)
+	if v, ok := processMapping[containerID]; ok {
+		v()
+		delete(processMapping, containerID)
+		conn.Write(statusOK)
+		return nil
+	}
+	conn.Write(statusErr)
+	return errNoID
 }
 
 // fileReceiver
@@ -243,6 +288,7 @@ func fileReceiver(conn net.Conn, data []byte) error {
 		conn.Write(statusErr)
 		return err
 	}
+	s.ctx, s.cancel = context.WithCancel(ctxRoot)
 	programMapping[programIndex(id)] = s
 	return err
 }
@@ -255,6 +301,7 @@ func fileRemover(conn net.Conn, data []byte) error {
 	if v, ok := programMapping[id]; ok {
 		delete(programMapping, id)
 		os.RemoveAll(v.dir)
+		v.cancel()
 		conn.Write(statusOK)
 		return nil
 	}
@@ -300,4 +347,11 @@ func dataSend(conn net.Conn, data []byte) error {
 	dataStore(id, data)
 	conn.Write(statusOK)
 	return nil
+}
+
+func processCancel(containerID string) {
+	if v, ok := processMapping[containerID]; ok {
+		v()
+		delete(processMapping, containerID)
+	}
 }

@@ -26,8 +26,6 @@ var (
 	errNotSupport = errors.New("Path type not support")
 )
 
-type containerID string
-
 // PathType 路径类型
 type PathType byte
 
@@ -83,9 +81,13 @@ func containerListenAndServe(ctx context.Context, cli *client.Client, containerI
 	if err != nil {
 		logger.Printf("Exit with error: %s.\n", err.Error())
 	}
+	// TODO:
+	// Sending container stop signal
+	statusSend([]byte(containerID + ":stop\x00"))
 	cli.ContainerRemove(context.Background(), containerID, types.ContainerRemoveOptions{Force: true})
 	dataRead(containerID)
 	dbInfoRemove(containerID)
+	processCancel(containerID)
 	cli.Close()
 }
 

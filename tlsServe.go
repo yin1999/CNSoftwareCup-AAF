@@ -11,35 +11,41 @@ import (
 	"sync"
 )
 
-type tlsHandlerFunc func(conn net.Conn, param []byte) error
+type tcpHandlerFunc func(conn net.Conn, param []byte) error
 type sessionID string
 
 var (
 	errCloseConnect   = errors.New("Please close the connection")
 	listenerClosed    = false
 	m                 = sync.Mutex{}
-	tlsHandlerMapping = make(map[string]tlsHandlerFunc)
+	tlsHandlerMapping = make(map[string]tcpHandlerFunc)
 	sessionMapping    = make(map[sessionID]net.Conn)
 )
 
-func tlsConnectHandleRegister(cmd string, f tlsHandlerFunc, mapping map[string]tlsHandlerFunc) {
+func tcpConnectHandleRegister(cmd string, f tcpHandlerFunc, mapping map[string]tcpHandlerFunc) {
 	if mapping == nil {
 		mapping = tlsHandlerMapping
 	}
 	mapping[cmd] = f
 }
 
-func tlsListenAndServe(ctx context.Context, laddr string, cfg *tls.Config, mapping map[string]tlsHandlerFunc) {
+func tcpListenAndServe(ctx context.Context, laddr string, cfg *tls.Config, mapping map[string]tcpHandlerFunc) {
 	if mapping == nil {
 		mapping = tlsHandlerMapping
 	}
-	ln, err := tls.Listen("tcp", laddr, cfg)
+	var ln net.Listener
+	var err error
+	if cfg != nil {
+		ln, err = tls.Listen("tcp", laddr, cfg)
+	} else {
+		ln, err = net.Listen("tcp", laddr)
+	}
+
 	if err != nil {
 		logger.Println(err)
-		ctx.Done()
 		return
 	}
-	ch := tlsListener(ln)
+	ch := tcpListener(ln)
 	go func() {
 		for {
 			select {
@@ -50,13 +56,13 @@ func tlsListenAndServe(ctx context.Context, laddr string, cfg *tls.Config, mappi
 				m.Unlock()
 				return
 			case conn := <-ch:
-				go tlsConnectHandler(conn, mapping)
+				go tcpConnectHandler(conn, mapping)
 			}
 		}
 	}()
 }
 
-func tlsListener(ln net.Listener) <-chan net.Conn {
+func tcpListener(ln net.Listener) <-chan net.Conn {
 	connChannel := make(chan net.Conn, 1)
 	go func() {
 		for {
@@ -77,7 +83,7 @@ func tlsListener(ln net.Listener) <-chan net.Conn {
 	return connChannel
 }
 
-func tlsConnectHandler(conn net.Conn, mapping map[string]tlsHandlerFunc) {
+func tcpConnectHandler(conn net.Conn, mapping map[string]tcpHandlerFunc) {
 	sess := sessionIDGen()
 	logger.Printf("New connect: %v.\n", sess)
 	sessionMapping[sess] = conn
