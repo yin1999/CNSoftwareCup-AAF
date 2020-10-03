@@ -91,13 +91,16 @@ func main() {
 	signalListenAndServe(ctxRoot, nil)
 	tcpConnectHandleRegister("auth", authIn, nil)
 	tcpConnectHandleRegister("fileTransfer", fileReceiver, nil)
-	tcpConnectHandleRegister("removeID", fileRemover, nil)
+	tcpConnectHandleRegister("removeFile", fileRemover, nil)
 	tcpConnectHandleRegister("listen", statusListenRegister, nil)
+	tcpConnectHandleRegister("start", execStart, nil)
+	tcpConnectHandleRegister("stop", execStop, nil)
 	tcpConnectHandleRegister("auth", authForDocker, tcpForDocker)
 	tcpConnectHandleRegister("dbList", dbInfoGet, tcpForDocker)
-	tcpListenAndServe(ctxRoot, ":443", config, nil)
+	tcpListenAndServe(ctxRoot, ":443", config, nil) // exposed port
 	tcpListenAndServe(ctxRoot, ":2076", nil, tcpForDocker)
 	stdinHandleRegister("exit", exit, nil)
+	stdinHandleRegister("listSession", listSession, nil)
 	stdinListenerAndServe(ctxRoot, nil)
 	select {}
 }
@@ -162,7 +165,7 @@ func execStart(conn net.Conn, data []byte) error {
 	}
 	conn.Write(statusOK) // response
 	r := bufio.NewReader(conn)
-	argv, err := r.ReadString(0)
+	argv, err := readString(0, r)
 	if err != nil {
 		conn.Write(statusErr)
 		return err
@@ -194,9 +197,8 @@ func execStart(conn net.Conn, data []byte) error {
 			flag = false
 		}
 	}
-	t := make([]byte, 1)
-	conn.Read(t)
-	if t[0] != 0 || flag == false {
+	conn.Read(num)
+	if num[0] != 0 || flag == false { // end symbol
 		conn.Write(statusErr)
 		return errTransferErr
 	}
