@@ -177,19 +177,19 @@ func execStart(conn net.Conn, data []byte) error {
 	dbList := make([]dbInfo, int(num[0]))
 	flag := true
 	for i := byte(0); i < num[0]; i++ {
-		dbList[i].dbType, err = r.ReadString(';')
+		dbList[i].dbType, err = readString(';', r)
 		if err != nil {
 			flag = false
 		}
-		dbList[i].dbAddr, err = r.ReadString(';')
+		dbList[i].dbAddr, err = readString(';', r)
 		if err != nil {
 			flag = false
 		}
-		dbList[i].dbUserName, err = r.ReadString(';')
+		dbList[i].dbUserName, err = readString(';', r)
 		if err != nil {
 			flag = false
 		}
-		dbList[i].dbPassword, err = r.ReadString(';')
+		dbList[i].dbPassword, err = readString(';', r)
 		if err != nil {
 			flag = false
 		}

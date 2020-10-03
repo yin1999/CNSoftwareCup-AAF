@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/tls"
-	"encoding/base64"
 	"errors"
 	"net"
 	"sync"
@@ -90,7 +89,7 @@ func tcpConnectHandler(conn net.Conn, mapping map[string]tcpHandlerFunc) {
 	defer sessionClose(sess)
 	r := bufio.NewReader(conn)
 	if f, ok := mapping["auth"]; ok {
-		data, err := r.ReadBytes(0)
+		data, err := readBytes(0, r)
 		err = f(conn, data)
 		if err != nil {
 			logger.Println(err)
@@ -98,7 +97,7 @@ func tcpConnectHandler(conn net.Conn, mapping map[string]tcpHandlerFunc) {
 		}
 	}
 	for {
-		msg, err := r.ReadBytes(0)
+		msg, err := readBytes(0, r)
 		if err != nil {
 			logger.Println(err)
 			return
@@ -124,7 +123,7 @@ func dataSplit(in []byte) (cmd string, data []byte) {
 	i := 0
 	for i = range in {
 		if in[i] == ':' {
-			return string(in[:i]), in[i+1 : len(in)-1]
+			return string(in[:i]), in[i+1:]
 		}
 	}
 	return string(in[:i+1]), nil
@@ -135,7 +134,7 @@ func sessionIDGen() sessionID {
 	if _, err := rand.Read(b); err != nil {
 		return ""
 	}
-	return sessionID(base64.RawStdEncoding.EncodeToString(b))
+	return sessionID(b)
 }
 
 func sessionClose(sess sessionID) {
@@ -157,4 +156,17 @@ func GetFreePort() (int, error) {
 	}
 	defer l.Close()
 	return l.Addr().(*net.TCPAddr).Port, nil
+}
+
+func readBytes(delimer byte, r *bufio.Reader) ([]byte, error) {
+	data, err := r.ReadBytes(delimer)
+	if err != nil {
+		return nil, err
+	}
+	return data[:len(data)-1], err
+}
+
+func readString(delimer byte, r *bufio.Reader) (string, error) {
+	data, err := readBytes(delimer, r)
+	return string(data), err
 }
