@@ -70,12 +70,13 @@ func init() {
 	}
 	fmt.Fscanln(f, &key)
 	f.Close()
+	ctxRoot, ctxRootCancel = context.WithCancel(context.Background())
+	logger = NewMultiLogger(30*24*time.Hour, "log")
 	IDReader(programMapping)
 	pwd = filepath.Dir(os.Args[0]) + "/"
 }
 
 func main() {
-	logger = NewMultiLogger(30*24*time.Hour, "log")
 	logger.Println("Starting...")
 	cert, err := tls.LoadX509KeyPair("CA/xx.hhuiot.xyz.pem", "CA/xx.hhuiot.xyz.key")
 	if err != nil {
@@ -84,7 +85,6 @@ func main() {
 	}
 
 	config := &tls.Config{Certificates: []tls.Certificate{cert}}
-	ctxRoot, ctxRootCancel = context.WithCancel(context.Background())
 	defer ctxRootCancel()
 	signalHandleRegister(os.Interrupt, ctxRootCancel, nil)
 	signalHandleRegister(os.Kill, ctxRootCancel, nil)
