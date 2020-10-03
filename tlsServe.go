@@ -124,10 +124,10 @@ func dataSplit(in []byte) (cmd string, data []byte) {
 	i := 0
 	for i = range in {
 		if in[i] == ':' {
-			return string(in), in[i+1:]
+			return string(in[:i+1]), in[i+1:]
 		}
 	}
-	return string(in[:i+1]), nil
+	return string(in), nil
 }
 
 func sessionIDGen() sessionID {
