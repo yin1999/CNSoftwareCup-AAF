@@ -40,6 +40,7 @@ const (
 
 var (
 	ctxRoot           context.Context
+	ctxRootCancel     context.CancelFunc
 	errAuthFailed     = errors.New("Auth failed, key error")
 	errTypeErr        = errors.New("Unknown type")
 	errEOF            = errors.New("Error EOF")
@@ -83,10 +84,10 @@ func main() {
 	}
 
 	config := &tls.Config{Certificates: []tls.Certificate{cert}}
-	ctxRoot, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	signalHandleRegister(os.Interrupt, cancel, nil)
-	signalHandleRegister(os.Kill, cancel, nil)
+	ctxRoot, ctxRootCancel = context.WithCancel(context.Background())
+	defer ctxRootCancel()
+	signalHandleRegister(os.Interrupt, ctxRootCancel, nil)
+	signalHandleRegister(os.Kill, ctxRootCancel, nil)
 	signalListenAndServe(ctxRoot, nil)
 	tcpConnectHandleRegister("auth", authIn, nil)
 	tcpConnectHandleRegister("fileTransfer", fileReceiver, nil)
