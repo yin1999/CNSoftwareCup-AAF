@@ -33,7 +33,7 @@ func builder(p programInfo) error {
 func py2Builder(dir string) error {
 	cmd := exec.Cmd{
 		Path: execPy,
-		Args: []string{"./"},
+		Args: []string{execPy, "./"},
 		Dir:  dir,
 	}
 	return runCmd(&cmd)
@@ -42,7 +42,7 @@ func py2Builder(dir string) error {
 func py3Builder(dir string) error {
 	cmd := exec.Cmd{
 		Path: execPy,
-		Args: []string{"./"},
+		Args: []string{execPy, "./"},
 		Dir:  dir,
 	}
 	return runCmd(&cmd)
@@ -52,7 +52,7 @@ func goBuilder(dir string) error {
 	// create go.mod
 	cmd := exec.Cmd{
 		Path: execGo,
-		Args: []string{"mod", "init", "main"},
+		Args: []string{execGo, "mod", "init", "main"},
 		Dir:  dir,
 	}
 	err := runCmd(&cmd)
@@ -61,7 +61,7 @@ func goBuilder(dir string) error {
 	}
 
 	// build
-	cmd.Args = []string{"build", "-ldflags", "-s -w"}
+	cmd.Args = []string{execGo, "build", "-ldflags", "-s -w"}
 	err = runCmd(&cmd)
 	return err
 }
@@ -75,21 +75,21 @@ func runCmd(cmd *exec.Cmd) error {
 	if err = cmd.Start(); err != nil {
 		return err
 	}
-	if err = cmd.Wait(); err != nil {
-		return err
-	}
-	buf, err := ioutil.ReadAll(out)
-	var cmdStr string
-	if len(cmd.Args) == 0 {
-		cmdStr = cmd.Path
-	} else {
-		cmdStr = cmd.Path + " " + cmd.Args[0]
-	}
-	if len(buf) != 0 {
-		return execErr{
-			cmd:    cmdStr,
-			path:   cmd.Dir,
-			errMsg: string(buf),
+	err = cmd.Wait()
+	if err != nil {
+		buf, _ := ioutil.ReadAll(out)
+		var cmdStr string
+		if len(cmd.Args) == 0 {
+			cmdStr = cmd.Path
+		} else {
+			cmdStr = cmd.Path + " " + cmd.Args[0]
+		}
+		if len(buf) != 0 {
+			return execErr{
+				cmd:    cmdStr,
+				path:   cmd.Dir,
+				errMsg: string(buf),
+			}
 		}
 	}
 	return err
