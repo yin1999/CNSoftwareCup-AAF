@@ -225,7 +225,7 @@ func execStop(conn net.Conn, data []byte) error {
 }
 
 // fileReceiver
-// cmd format: "fileTransfer" + ":" + type(lower bit: filetype, higher bit result type) + fileSize(bytes) + "\x00"
+// cmd format: "fileTransfer" + ":" + type(lower bit: filetype, higher bit result type) + "\x00" + fileSize(bytes) + "\x00"
 // conn return: status
 // if got statusOK, then transfer the file, if got No statusMsg, it means programID to the file
 func fileReceiver(conn net.Conn, data []byte) error {
@@ -240,13 +240,13 @@ func fileReceiver(conn net.Conn, data []byte) error {
 	s := programInfo{}
 	s.dir = path
 	switch data[0] & 0x7F {
-	case 0:
+	case 1:
 		s.file = python2
 		fileName += "py"
-	case 1:
+	case 2:
 		s.file = python3
 		fileName += "py"
-	case 2:
+	case 3:
 		s.file = golang
 		fileName += "go"
 	default:
@@ -263,8 +263,14 @@ func fileReceiver(conn net.Conn, data []byte) error {
 		conn.Write(statusErr)
 		return err
 	}
+	data = make([]byte, 5)
+	conn.Read(data)
+	if data[4] != 0 {
+		conn.Write(statusErr)
+		return errNotSupport
+	}
 	conn.Write(statusOK)
-	length := binary.BigEndian.Uint32(data[1:5]) + 1
+	length := binary.BigEndian.Uint32(data[:4]) + 1
 	if length > maxBufferLength {
 		buf := make([]byte, length)
 		for length > maxBufferLength {
