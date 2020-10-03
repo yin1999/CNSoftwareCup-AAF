@@ -94,9 +94,6 @@ func main() {
 	tcpListenAndServe(ctxRoot, ":443", config, nil)
 	tcpListenAndServe(ctxRoot, ":2076", nil, tcpForDocker)
 	stdinHandleRegister("exit", exit, nil)
-	stdinHandleRegister("key", func(param ...string) {
-		fmt.Println(key)
-	}, nil)
 	stdinListenerAndServe(ctxRoot, nil)
 	select {}
 }
@@ -113,7 +110,6 @@ func listSession(param ...string) {
 }
 
 func authIn(conn net.Conn, data []byte) error {
-	fmt.Println(len(data))
 	if string(data) == key {
 		conn.Write(statusOK)
 		return nil

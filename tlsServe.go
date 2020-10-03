@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/tls"
+	"encoding/base64"
 	"errors"
 	"net"
 	"sync"
@@ -134,7 +135,7 @@ func sessionIDGen() sessionID {
 	if _, err := rand.Read(b); err != nil {
 		return ""
 	}
-	return sessionID(b)
+	return sessionID(base64.RawURLEncoding.EncodeToString(b))
 }
 
 func sessionClose(sess sessionID) {
