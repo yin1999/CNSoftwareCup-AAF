@@ -5,9 +5,11 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"io/ioutil"
+	"io"
 	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
@@ -15,8 +17,17 @@ import (
 	"github.com/moby/moby/client"
 )
 
+// PathType 路径类型
+type PathType byte
+
 const (
 	execDocker = "/usr/bin/docker"
+)
+
+const (
+	notExist PathType = iota
+	directory
+	file
 )
 
 var (
@@ -27,9 +38,6 @@ var (
 	}
 	errNotSupport = errors.New("Path type not support")
 )
-
-// PathType 路径类型
-type PathType byte
 
 func newProcess(ctx context.Context, p programInfo, argv string, dbList []dbInfo) (string, error) {
 	cli, err := client.NewEnvClient()
@@ -94,65 +102,13 @@ func containerListenAndServe(ctx context.Context, cli *client.Client, containerI
 }
 
 func copyToContainer(ctx context.Context, cli *client.Client, containerID, dst, src string) error {
-	switch pathStat(src) {
-	case notExist:
-		return os.ErrNotExist
-	case directory:
-		buf := new(bytes.Buffer)
-		tw := tar.NewWriter(buf)
-		files, _ := ioutil.ReadDir(src)
-		for i := range files {
-			hdr, err := tar.FileInfoHeader(files[i], "")
-			if err != nil {
-				tw.Close()
-				return err
-			}
-			err = tw.WriteHeader(hdr)
-			if err != nil {
-				tw.Close()
-				return err
-			}
-		}
-		err := tw.Close()
-		if err != nil {
-			return err
-		}
-		err = cli.CopyToContainer(ctx, containerID, dst, buf, types.CopyToContainerOptions{AllowOverwriteDirWithFile: true})
+	buf := new(bytes.Buffer)
+	err := Tar(src, buf)
+	if err != nil {
 		return err
-	case file:
-		buf := new(bytes.Buffer)
-		tw := tar.NewWriter(buf)
-		fi, err := os.Stat(src)
-		if err != nil {
-			tw.Close()
-			return err
-		}
-		hdr, err := tar.FileInfoHeader(fi, "")
-		if err != nil {
-			tw.Close()
-			return err
-		}
-		err = tw.WriteHeader(hdr)
-		if err != nil {
-			tw.Close()
-			return err
-		}
-		err = tw.Close()
-		if err != nil {
-			return err
-		}
-		err = cli.CopyToContainer(ctx, containerID, dst, buf, types.CopyToContainerOptions{AllowOverwriteDirWithFile: true})
-		return err
-	default:
-		return errNotSupport
 	}
+	return cli.CopyToContainer(ctx, containerID, dst, buf, types.CopyToContainerOptions{AllowOverwriteDirWithFile: true})
 }
-
-const (
-	notExist PathType = iota
-	directory
-	file
-)
 
 // pathStat 判断所给路径类型
 // return: directory: 文件夹, file: 文件, notExist: 不存在
@@ -165,4 +121,50 @@ func pathStat(path string) PathType {
 		return directory
 	}
 	return file
+}
+
+// Tar 打包文件或目录
+func Tar(src string, dst *bytes.Buffer) error {
+	flag := false
+	length := len(src)
+	switch pathStat(src) {
+	case notExist:
+		return os.ErrNotExist
+	case directory: // 去掉root目录
+		if src[length-1] != filepath.Separator {
+			src += string(filepath.Separator)
+			length++
+		}
+		flag = true
+	}
+	tw := tar.NewWriter(dst)
+	defer tw.Close()
+	return filepath.Walk(src, func(fileName string, fi os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		hdr, err := tar.FileInfoHeader(fi, "")
+		if err != nil {
+			return err
+		}
+		hdr.Name = strings.TrimPrefix(fileName, string(filepath.Separator))
+
+		if flag { // 去掉root目录
+			hdr.Name = hdr.Name[length:]
+		}
+
+		if err := tw.WriteHeader(hdr); err != nil {
+			return err
+		}
+		if !fi.Mode().IsRegular() { // not file: dir ...
+			return nil
+		}
+		fileReader, err := os.Open(fileName)
+		if err != nil {
+			return err
+		}
+		defer fileReader.Close()
+		_, err = io.Copy(tw, fileReader)
+		return err
+	})
 }
