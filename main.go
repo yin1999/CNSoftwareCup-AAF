@@ -272,6 +272,7 @@ func fileReceiver(conn net.Conn, data []byte) error {
 		conn.Write(statusErr)
 		return err
 	}
+	conn.Write(statusOK)
 	data = make([]byte, 5)
 	conn.Read(data)
 	if data[4] != 0 {
