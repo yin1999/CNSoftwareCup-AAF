@@ -4,11 +4,14 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strconv"
+	"sync"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
@@ -36,6 +39,8 @@ var (
 		golang:  "registry-vpc.cn-shanghai.aliyuncs.com/yin199909/centos_7:origin",
 	}
 	errNotSupport = errors.New("Path type not support")
+
+	mutex = sync.Mutex{}
 )
 
 func newProcess(ctx context.Context, p programInfo, argv string, dbList []dbInfo) (string, error) {
@@ -84,13 +89,27 @@ func newProcess(ctx context.Context, p programInfo, argv string, dbList []dbInfo
 	return body.ID, nil
 }
 
+// TODO
 func containerListenAndServe(ctx context.Context, cli *client.Client, containerID string) {
 	returnCode, err := cli.ContainerWait(ctx, containerID)
 	logger.Printf("Container: %s return %d.\n", containerID, returnCode)
 	if err != nil {
 		logger.Printf("Exit with error: %s.\n", err.Error())
 	}
-	statusSend([]byte(containerID + ":stoped\x00"))
+	mutex.Lock() // 互斥锁上锁
+	mqSend([]byte(fmt.Sprintf("stoped:%s\x00", containerID)))
+	if v, ok := processMapping[containerID]; ok {
+		if v.immediate == false {
+			if data, ok := dataMapping[containerID]; ok {
+				mqSend([]byte(fmt.Sprintf("data:%s\x00", containerID)))
+				sizeBuffer := bytes.NewBuffer([]byte{})
+				binary.Write(sizeBuffer, binary.BigEndian, uint32(len(data))) // file size
+				mqSend(append(sizeBuffer.Bytes(), 0))
+				mqSend(append(data, 0))
+			}
+		}
+	}
+	mutex.Unlock() // 互斥锁解锁
 	cli.ContainerRemove(context.Background(), containerID, types.ContainerRemoveOptions{Force: true})
 	dataRead(containerID)
 	dbInfoRemove(containerID)

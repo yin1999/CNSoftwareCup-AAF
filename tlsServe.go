@@ -90,9 +90,7 @@ func tcpConnectHandler(conn net.Conn, mapping map[string]tcpHandlerFunc) {
 	defer sessionClose(sess)
 	r := bufio.NewReader(conn)
 	if f, ok := mapping["auth"]; ok {
-		data, err := readBytes(0, r)
-		err = f(conn, data)
-		if err != nil {
+		if err := f(conn, nil); err != nil {
 			logger.Println(err)
 			return
 		}

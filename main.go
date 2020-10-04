@@ -8,17 +8,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
-	"sync"
 	"time"
 )
 
 type fileType int
-
 type programIndex string
 type programInfo struct {
 	dir       string
@@ -28,14 +27,15 @@ type programInfo struct {
 	cancel    context.CancelFunc
 }
 
+type processInfo struct {
+	cancel    context.CancelFunc
+	immediate bool
+}
+
 const (
 	python2 fileType = iota
 	python3
 	golang
-)
-
-const (
-	maxBufferLength = 4 << 20 // 4MB buffer
 )
 
 var (
@@ -58,9 +58,7 @@ var (
 	tcpForDocker      = make(map[string]tcpHandlerFunc)
 	portToContainerID = make(map[string]string)
 	dbListMapping     = make(map[string][]dbInfo)
-	processMapping    = make(map[string]context.CancelFunc)
-	connListener      net.Conn
-	listenerLock      = sync.Mutex{}
+	processMapping    = make(map[string]processInfo)
 )
 
 func init() {
@@ -97,6 +95,7 @@ func main() {
 	tcpConnectHandleRegister("stop", execStop, nil)
 	tcpConnectHandleRegister("auth", authForDocker, tcpForDocker)
 	tcpConnectHandleRegister("dbList", dbInfoGet, tcpForDocker)
+	tcpConnectHandleRegister("send", dataSend, tcpForDocker)
 	tcpListenAndServe(ctxRoot, ":443", config, nil) // exposed port
 	tcpListenAndServe(ctxRoot, ":2076", nil, tcpForDocker)
 	stdinHandleRegister("exit", exit, nil)
@@ -117,6 +116,8 @@ func listSession(param ...string) {
 }
 
 func authIn(conn net.Conn, data []byte) error {
+	r := bufio.NewReader(conn)
+	data, _ = readBytes(0, r)
 	if string(data) == key {
 		conn.Write(statusOK)
 		return nil
@@ -126,7 +127,6 @@ func authIn(conn net.Conn, data []byte) error {
 }
 
 func authForDocker(conn net.Conn, data []byte) error {
-	conn.Write(statusOK)
 	return nil
 }
 
@@ -137,18 +137,23 @@ func statusListenRegister(conn net.Conn, data []byte) error {
 		runtime.SetFinalizer(connListener, nil)
 	}
 	connListener = conn
-	runtime.SetFinalizer(connListener, (net.Conn).Close)
+	if pushServiceLocked {
+		pushLock <- struct{}{}
+	}
 	listenerLock.Unlock()
+	runtime.SetFinalizer(connListener, (net.Conn).Close)
 	conn.Write(statusOK)
 	return nil
 }
 
-func statusSend(data []byte) {
-	listenerLock.Lock()
+func statusSend(conn net.Conn, data []byte) {
 	if connListener != nil {
-		connListener.Write(data)
+		connListener.SetWriteDeadline(time.Now().Add(3 * time.Second))
+		if _, err := connListener.Write(data); err != nil {
+			connListener.Close()
+			runtime.SetFinalizer(connListener, nil)
+		}
 	}
-	listenerLock.Unlock()
 }
 
 func execStart(conn net.Conn, data []byte) error {
@@ -210,7 +215,7 @@ func execStart(conn net.Conn, data []byte) error {
 		return err
 	}
 	dbListMapping[containerID] = dbList
-	processMapping[containerID] = cancel
+	processMapping[containerID] = processInfo{cancel: cancel, immediate: p.immediate}
 	conn.Write(statusOK) // response + containerID + "\x00"
 	conn.Write([]byte(containerID + "\x00"))
 	return err
@@ -219,7 +224,7 @@ func execStart(conn net.Conn, data []byte) error {
 func execStop(conn net.Conn, data []byte) error {
 	containerID := string(data)
 	if v, ok := processMapping[containerID]; ok {
-		v()
+		v.cancel()
 		delete(processMapping, containerID)
 		conn.Write(statusOK)
 		return nil
@@ -270,35 +275,26 @@ func fileReceiver(conn net.Conn, data []byte) error {
 	data = make([]byte, 5)
 	conn.Read(data)
 	if data[4] != 0 {
+		file.Close()
 		conn.Write(statusErr)
+		os.RemoveAll(path)
 		return errNotSupport
 	}
-	conn.Write(statusOK)
-	length := binary.BigEndian.Uint32(data[:4]) + 1
-	if length > maxBufferLength {
-		buf := make([]byte, length)
-		for length > maxBufferLength {
-			conn.Read(buf)
-			file.Write(buf)
-			length -= maxBufferLength
-		}
-	}
-	buf := make([]byte, length)
-	conn.Read(buf)
-	if buf[length-1] != 0 {
+	conn.Write(statusOK) // response
+	length := binary.BigEndian.Uint32(data[:4])
+	if _, err = io.CopyN(file, conn, int64(length)); err != nil {
 		conn.Write(statusErr)
 		file.Close()
 		os.RemoveAll(path)
-		return errEOF
+		return err
 	}
-	file.Write(buf[:length-1])
-	conn.Write([]byte(id + "\x00"))
 	file.Close()
 	if err = builder(s); err != nil {
 		conn.Write(statusErr)
+		os.RemoveAll(path)
 		return err
 	}
-	conn.Write(statusOK)
+	conn.Write([]byte(id + "\x00"))
 	s.ctx, s.cancel = context.WithCancel(ctxRoot)
 	programMapping[programIndex(id)] = s
 	s.cfgStore()
@@ -321,7 +317,7 @@ func fileRemover(conn net.Conn, data []byte) error {
 	return errNoID
 }
 
-func connToID(conn net.Conn) string {
+func connToID(conn net.Conn) (containerID string) {
 	port := strings.Split(conn.RemoteAddr().String(), ":")[1]
 	if id, ok := portToContainerID[port]; ok {
 		return id
@@ -356,14 +352,24 @@ func dbInfoRemove(containerID string) {
 
 func dataSend(conn net.Conn, data []byte) error {
 	id := connToID(conn)
-	dataStore(id, data)
-	conn.Write(statusOK)
-	return nil
+	if v, ok := processMapping[id]; ok {
+		if v.immediate {
+			cmd := []byte(id + ":")
+			cmd = append(cmd, data...)
+			mqSend(append(cmd, 0))
+		} else {
+			dataStore(id, data)
+		}
+		conn.Write(statusOK)
+		return nil
+	}
+	conn.Close()
+	return errors.New("Exit this program")
 }
 
 func processCancel(containerID string) {
 	if v, ok := processMapping[containerID]; ok {
-		v()
+		v.cancel()
 		delete(processMapping, containerID)
 	}
 }
