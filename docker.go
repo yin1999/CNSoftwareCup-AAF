@@ -1,6 +1,8 @@
 package main
 
 import (
+	"archive/tar"
+	"bytes"
 	"context"
 	"errors"
 	"io/ioutil"
@@ -96,31 +98,50 @@ func copyToContainer(ctx context.Context, cli *client.Client, containerID, dst, 
 	case notExist:
 		return os.ErrNotExist
 	case directory:
-		if dst[len(dst)-1] != '/' {
-			dst += "/"
-		}
-		if src[len(src)-1] != '/' {
-			src += "/"
-		}
-		files, err := ioutil.ReadDir(src)
-		if err != nil {
-			return err
-		}
+		buf := new(bytes.Buffer)
+		tw := tar.NewWriter(buf)
+		files, _ := ioutil.ReadDir(src)
 		for i := range files {
-			fileName := files[i].Name()
-			err = copyToContainer(ctx, cli, containerID, dst+fileName, src+fileName)
+			hdr, err := tar.FileInfoHeader(files[i], "")
 			if err != nil {
+				tw.Close()
+				return err
+			}
+			err = tw.WriteHeader(hdr)
+			if err != nil {
+				tw.Close()
 				return err
 			}
 		}
-		return err
-	case file:
-		f, err := os.Open(src)
+		err := tw.Close()
 		if err != nil {
 			return err
 		}
-		err = cli.CopyToContainer(ctx, containerID, dst, f, types.CopyToContainerOptions{AllowOverwriteDirWithFile: true})
-		f.Close()
+		err = cli.CopyToContainer(ctx, containerID, dst, buf, types.CopyToContainerOptions{AllowOverwriteDirWithFile: true})
+		return err
+	case file:
+		buf := new(bytes.Buffer)
+		tw := tar.NewWriter(buf)
+		fi, err := os.Stat(src)
+		if err != nil {
+			tw.Close()
+			return err
+		}
+		hdr, err := tar.FileInfoHeader(fi, "")
+		if err != nil {
+			tw.Close()
+			return err
+		}
+		err = tw.WriteHeader(hdr)
+		if err != nil {
+			tw.Close()
+			return err
+		}
+		err = tw.Close()
+		if err != nil {
+			return err
+		}
+		err = cli.CopyToContainer(ctx, containerID, dst, buf, types.CopyToContainerOptions{AllowOverwriteDirWithFile: true})
 		return err
 	default:
 		return errNotSupport
