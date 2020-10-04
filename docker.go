@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
@@ -125,33 +124,35 @@ func pathStat(path string) PathType {
 
 // Tar 打包文件或目录
 func Tar(src string, dst *bytes.Buffer) error {
-	flag := false
 	length := len(src)
+	flag := false
 	switch pathStat(src) {
 	case notExist:
 		return os.ErrNotExist
 	case directory: // 去掉root目录
 		if src[length-1] != filepath.Separator {
-			src += string(filepath.Separator)
 			length++
 		}
 		flag = true
+	case file:
+		dir := filepath.Dir(src)
+		length = len(dir)
+		if length == 1 && dir[0] == '.' {
+			length = 0
+		}
 	}
 	tw := tar.NewWriter(dst)
 	defer tw.Close()
 	return filepath.Walk(src, func(fileName string, fi os.FileInfo, err error) error {
-		if err != nil {
+		if flag || err != nil {
+			flag = false
 			return err
 		}
 		hdr, err := tar.FileInfoHeader(fi, "")
 		if err != nil {
 			return err
 		}
-		hdr.Name = strings.TrimPrefix(fileName, string(filepath.Separator))
-
-		if flag { // 去掉root目录
-			hdr.Name = hdr.Name[length:]
-		}
+		hdr.Name = fileName[length:] // 去掉根目录
 
 		if err := tw.WriteHeader(hdr); err != nil {
 			return err
