@@ -90,9 +90,7 @@ func containerListenAndServe(ctx context.Context, cli *client.Client, containerI
 	if err != nil {
 		logger.Printf("Exit with error: %s.\n", err.Error())
 	}
-	// TODO:
-	// Sending container stop signal
-	statusSend([]byte(containerID + ":stop\x00"))
+	statusSend([]byte(containerID + ":stoped\x00"))
 	cli.ContainerRemove(context.Background(), containerID, types.ContainerRemoveOptions{Force: true})
 	dataRead(containerID)
 	dbInfoRemove(containerID)
