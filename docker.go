@@ -90,7 +90,7 @@ func containerListenAndServe(ctx context.Context, cli *client.Client, containerI
 		logger.Printf("Exit with error: %s.\n", err.Error())
 	}
 	mutex.Lock() // 互斥锁上锁
-	mqSend([]byte(fmt.Sprintf("stoped:%s\x00", containerID)))
+	mqSend([]byte(fmt.Sprintf("stoped:%s:%d\x00", containerID, returnCode)))
 	if v, ok := processMapping[containerID]; ok {
 		if v.immediate == false {
 			if data, ok := dataMapping[containerID]; ok {
