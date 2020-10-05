@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"time"
 )
 
@@ -46,6 +47,7 @@ var (
 	errNoID              = errors.New("ID not existed")
 	errTransferErr       = errors.New("Transfer err, got wrong data")
 	errNoMapping         = errors.New("No value with this key")
+	mqLock               = sync.Mutex{}
 	logger               *MultiLogger
 	key                  string
 	statusOK             = []byte("ok\x00")
@@ -123,20 +125,21 @@ func authIn(conn net.Conn, data []byte) error {
 		conn.Write(statusOK)
 		return nil
 	}
+	conn.SetWriteDeadline(time.Now().Add(3 * time.Second))
 	conn.Write(statusErr)
 	return errAuthFailed
 }
 
 func authForDocker(conn net.Conn, data []byte) error {
 	r := bufio.NewReader(conn)
-	sess, err := readString(0, r)
-	if err != nil {
-		return err
-	}
+	sess, _ := readString(0, r)
 	if v, ok := containerSessToID[sessionID(sess)]; ok {
 		addressToContainerID[conn.RemoteAddr().String()] = v
+		conn.Write(statusOK)
 		return nil
 	}
+	conn.SetWriteDeadline(time.Now().Add(3 * time.Second))
+	conn.Write(statusErr)
 	return errAuthFailed
 }
 
@@ -200,19 +203,19 @@ func execStart(conn net.Conn, data []byte) error {
 	dbList := make([]dbInfo, int(num[0]))
 	flag := true
 	for i := byte(0); i < num[0]; i++ {
-		dbList[i].dbType, err = readString(';', r)
+		dbList[i].DBType, err = readString(';', r)
 		if err != nil {
 			flag = false
 		}
-		dbList[i].dbAddr, err = readString(';', r)
+		dbList[i].DBAddr, err = readString(';', r)
 		if err != nil {
 			flag = false
 		}
-		dbList[i].dbUserName, err = readString(';', r)
+		dbList[i].DBUserName, err = readString(';', r)
 		if err != nil {
 			flag = false
 		}
-		dbList[i].dbPassword, err = readString(';', r)
+		dbList[i].DBPassword, err = readString(';', r)
 		if err != nil {
 			flag = false
 		}
@@ -366,19 +369,27 @@ func dataSend(conn net.Conn, data []byte) error {
 		conn.Write(statusErr)
 		return errNoID
 	}
+	conn.Write(statusOK)
 	if v, ok := processMapping[id]; ok {
+		data = make([]byte, 4)
+		conn.Read(data)
+		length := binary.BigEndian.Uint32(data)
+		raw := make([]byte, length)
+		conn.Read(raw)
 		if v.immediate {
-			cmd := []byte(id + ":")
-			cmd = append(cmd, data...)
-			mqSend(append(cmd, 0))
+			mqLock.Lock()
+			mqSend([]byte(fmt.Sprintf("data:%s\x00", id)))
+			mqSend(data)
+			mqSend(raw)
+			mqLock.Unlock()
 		} else {
-			dataStore(id, data)
+			dataStore(id, raw)
 		}
 		conn.Write(statusOK)
 		return nil
 	}
 	conn.Close()
-	return errors.New("Exit this program")
+	return errors.New("Stop this process")
 }
 
 func processCancel(containerID string) {

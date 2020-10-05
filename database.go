@@ -1,8 +1,8 @@
 package main
 
 type dbInfo struct {
-	dbType     string
-	dbAddr     string
-	dbUserName string
-	dbPassword string
+	DBType     string `json:"dbType"`
+	DBAddr     string `json:"dbAddr"`
+	DBUserName string `json:"dbUsername"`
+	DBPassword string `json:"dbPassword"`
 }

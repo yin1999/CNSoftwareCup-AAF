@@ -61,3 +61,12 @@ func mqPush() {
 		mqMutex.Unlock()
 	}
 }
+
+func int32Encoder(num int32) []byte {
+	buf := make([]byte, 4)
+	for i := 3; num != 0; i-- {
+		buf[i] = byte(num & 0xFF)
+		num >>= 8
+	}
+	return buf
+}

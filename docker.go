@@ -9,7 +9,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"sync"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
@@ -36,8 +35,6 @@ var (
 		golang:  "registry-vpc.cn-shanghai.aliyuncs.com/yin199909/centos_7:origin",
 	}
 	errNotSupport = errors.New("Path type not support")
-
-	mutex = sync.Mutex{}
 )
 
 func newProcess(ctx context.Context, p programInfo, argv string, dbList []dbInfo) (string, error) {
@@ -51,7 +48,7 @@ func newProcess(ctx context.Context, p programInfo, argv string, dbList []dbInfo
 	case python2:
 		cmd = append(cmd, fmt.Sprintf("pip2 install -r requirements.txt && python2 main.py %s %s", sess, argv))
 	case python3:
-		cmd = append(cmd, fmt.Sprintf("pip2 install -r requirements.txt && python3 main.py %s %s", sess, argv))
+		cmd = append(cmd, fmt.Sprintf("pip3 install -r requirements.txt && python3 main.py %s %s", sess, argv))
 	case golang:
 		cmd = append(cmd, fmt.Sprintf("./main %s %s", sess, argv))
 	}
@@ -89,17 +86,19 @@ func containerListenAndServe(ctx context.Context, cli *client.Client, containerI
 	if err != nil {
 		logger.Printf("Exit with error: %s.\n", err.Error())
 	}
-	mutex.Lock() // 互斥锁上锁
+	mqLock.Lock() // 互斥锁上锁
 	mqSend([]byte(fmt.Sprintf("stoped:%s:%d\x00", containerID, returnCode)))
 	if v, ok := processMapping[containerID]; ok {
 		if v.immediate == false {
 			if data, ok := dataMapping[containerID]; ok {
+				lengthBuf := int32Encoder(int32(len(data)))
 				mqSend([]byte(fmt.Sprintf("data:%s\x00", containerID)))
-				mqSend(append(data, 0))
+				mqSend(lengthBuf)
+				mqSend(data)
 			}
 		}
 	}
-	mutex.Unlock() // 互斥锁解锁
+	mqLock.Unlock() // 互斥锁解锁
 	cli.ContainerRemove(context.Background(), containerID, types.ContainerRemoveOptions{Force: true})
 	dataRead(containerID)
 	dbInfoRemove(containerID)
