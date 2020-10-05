@@ -10,12 +10,10 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strconv"
 	"sync"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
-	"github.com/docker/go-connections/nat"
 	"github.com/moby/moby/client"
 )
 
@@ -48,6 +46,7 @@ func newProcess(ctx context.Context, p programInfo, argv string, dbList []dbInfo
 	if err != nil {
 		return "", err
 	}
+	sess := sessionIDGen(16)
 	cmd := []string{"sh", "-c"}
 	switch p.file {
 	case python2:
@@ -57,40 +56,35 @@ func newProcess(ctx context.Context, p programInfo, argv string, dbList []dbInfo
 	case golang:
 		cmd = append(cmd, "./main "+argv)
 	}
-	pb := nat.PortBinding{HostPort: "2105"}
-	portNum, err := GetFreePort()
-	if err != nil {
-		return "", err
-	}
-	port := strconv.Itoa(portNum)
-	exportPort := nat.Port(port + "/tcp")
 	body, err := cli.ContainerCreate(ctx, &container.Config{
-		Image:        imageMapping[p.file],
-		Cmd:          cmd,
-		WorkingDir:   "/app",
-		ExposedPorts: nat.PortSet{exportPort: struct{}{}},
-	}, &container.HostConfig{
-		PortBindings: nat.PortMap{exportPort: []nat.PortBinding{pb}},
-	}, nil, "")
+		Image:      imageMapping[p.file],
+		Cmd:        cmd,
+		WorkingDir: "/app",
+	}, nil, nil, "")
 	if err != nil {
 		cli.Close()
 		return "", err
 	}
 	if err = copyToContainer(ctx, cli, body.ID, "/app/", p.dir); err != nil {
+		cli.ContainerRemove(context.Background(), body.ID, types.ContainerRemoveOptions{Force: true})
 		cli.Close()
 		return "", err
 	}
+	containerSessToID[sess] = body.ID
+	dbListMapping[body.ID] = dbList
 	if err = cli.ContainerStart(ctx, body.ID, types.ContainerStartOptions{}); err != nil {
+		cli.ContainerRemove(context.Background(), body.ID, types.ContainerRemoveOptions{Force: true})
 		cli.Close()
+		delete(containerSessToID, sess)
+		dbInfoRemove(body.ID)
 		return "", err
 	}
-	addIDToMapping(body.ID, port)
-	go containerListenAndServe(ctx, cli, body.ID)
+	go containerListenAndServe(ctx, cli, body.ID, sess)
 	return body.ID, nil
 }
 
 // TODO
-func containerListenAndServe(ctx context.Context, cli *client.Client, containerID string) {
+func containerListenAndServe(ctx context.Context, cli *client.Client, containerID string, sess sessionID) {
 	returnCode, err := cli.ContainerWait(ctx, containerID)
 	logger.Printf("Container: %s return %d.\n", containerID, returnCode)
 	if err != nil {
@@ -115,6 +109,7 @@ func containerListenAndServe(ctx context.Context, cli *client.Client, containerI
 	dbInfoRemove(containerID)
 	processCancel(containerID)
 	cli.Close()
+	delete(containerSessToID, sess)
 }
 
 func copyToContainer(ctx context.Context, cli *client.Client, containerID, dst, src string) error {

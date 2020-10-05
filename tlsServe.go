@@ -7,6 +7,7 @@ import (
 	"crypto/tls"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"log"
 	"net"
 	"sync"
@@ -85,10 +86,14 @@ func tcpListener(ln net.Listener) <-chan net.Conn {
 }
 
 func tcpConnectHandler(conn net.Conn, mapping map[string]tcpHandlerFunc) {
-	sess := sessionIDGen()
+	sess := sessionIDGen(12)
 	logger.Printf("New connect: %v.\n", sess)
+	fmt.Println(conn.RemoteAddr())
 	sessionMapping[sess] = conn
 	defer sessionClose(sess)
+	if f, ok := mapping["disconnect"]; ok {
+		defer f(conn, nil)
+	}
 	r := bufio.NewReader(conn)
 	if f, ok := mapping["auth"]; ok {
 		if err := f(conn, nil); err != nil {
@@ -130,8 +135,8 @@ func dataSplit(in []byte) (cmd string, data []byte) {
 	return string(in), nil
 }
 
-func sessionIDGen() sessionID {
-	b := make([]byte, 12)
+func sessionIDGen(length int) sessionID {
+	b := make([]byte, length)
 	for {
 		if _, err := rand.Read(b); err != nil {
 			return ""
@@ -147,21 +152,6 @@ func sessionClose(sess sessionID) {
 	sessionMapping[sess].Close()
 	delete(sessionMapping, sess)
 	logger.Printf("Session: %s closed.\n", sess)
-}
-
-// GetFreePort 获取未占用端口
-func GetFreePort() (int, error) {
-	addr, err := net.ResolveTCPAddr("tcp", "localhost:0")
-	if err != nil {
-		return 0, err
-	}
-
-	l, err := net.ListenTCP("tcp", addr)
-	if err != nil {
-		return 0, err
-	}
-	defer l.Close()
-	return l.Addr().(*net.TCPAddr).Port, nil
 }
 
 func readBytes(delimer byte, r *bufio.Reader) ([]byte, error) {

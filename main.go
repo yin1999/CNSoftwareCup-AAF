@@ -13,7 +13,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"time"
 )
 
@@ -39,26 +38,27 @@ const (
 )
 
 var (
-	ctxRoot           context.Context
-	ctxRootCancel     context.CancelFunc
-	errAuthFailed     = errors.New("Auth failed, key error")
-	errTypeErr        = errors.New("Unknown type")
-	errEOF            = errors.New("Error EOF")
-	errNoID           = errors.New("ID not existed")
-	errTransferErr    = errors.New("Transfer err, got wrong data")
-	errNoMapping      = errors.New("No value with this key")
-	logger            *MultiLogger
-	key               string
-	statusOK          = []byte("ok\x00")
-	statusErr         = []byte("error\x00")
-	statusTypeErr     = []byte("typeErr\x00")
-	storePath         = "program"
-	programMapping    = make(map[programIndex]programInfo)
-	pwd               string
-	tcpForDocker      = make(map[string]tcpHandlerFunc)
-	portToContainerID = make(map[string]string)
-	dbListMapping     = make(map[string][]dbInfo)
-	processMapping    = make(map[string]processInfo)
+	ctxRoot              context.Context
+	ctxRootCancel        context.CancelFunc
+	errAuthFailed        = errors.New("Auth failed, key error")
+	errTypeErr           = errors.New("Unknown type")
+	errEOF               = errors.New("Error EOF")
+	errNoID              = errors.New("ID not existed")
+	errTransferErr       = errors.New("Transfer err, got wrong data")
+	errNoMapping         = errors.New("No value with this key")
+	logger               *MultiLogger
+	key                  string
+	statusOK             = []byte("ok\x00")
+	statusErr            = []byte("error\x00")
+	statusTypeErr        = []byte("typeErr\x00")
+	storePath            = "program"
+	programMapping       = make(map[programIndex]programInfo)
+	pwd                  string
+	tcpForDocker         = make(map[string]tcpHandlerFunc)
+	addressToContainerID = make(map[string]string)
+	dbListMapping        = make(map[string][]dbInfo)
+	processMapping       = make(map[string]processInfo)
+	containerSessToID    = make(map[sessionID]string)
 )
 
 func init() {
@@ -94,6 +94,7 @@ func main() {
 	tcpConnectHandleRegister("start", execStart, nil)
 	tcpConnectHandleRegister("stop", execStop, nil)
 	tcpConnectHandleRegister("auth", authForDocker, tcpForDocker)
+	tcpConnectHandleRegister("disconnect", disconnectForDocker, tcpForDocker)
 	tcpConnectHandleRegister("dbList", dbInfoGet, tcpForDocker)
 	tcpConnectHandleRegister("send", dataSend, tcpForDocker)
 	tcpListenAndServe(ctxRoot, ":443", config, nil) // exposed port
@@ -127,6 +128,19 @@ func authIn(conn net.Conn, data []byte) error {
 }
 
 func authForDocker(conn net.Conn, data []byte) error {
+	r := bufio.NewReader(conn)
+	sess, err := readString(0, r)
+	if err != nil {
+		return err
+	}
+	if v, ok := containerSessToID[sessionID(sess)]; ok {
+		addressToContainerID[conn.RemoteAddr().String()] = v
+	}
+	return nil
+}
+
+func disconnectForDocker(conn net.Conn, data []byte) error {
+	delete(addressToContainerID, conn.RemoteAddr().String())
 	return nil
 }
 
@@ -214,7 +228,6 @@ func execStart(conn net.Conn, data []byte) error {
 		cancel()
 		return err
 	}
-	dbListMapping[containerID] = dbList
 	processMapping[containerID] = processInfo{cancel: cancel, immediate: p.immediate}
 	conn.Write(statusOK) // response + containerID + "\x00"
 	conn.Write([]byte(containerID + "\x00"))
@@ -319,15 +332,10 @@ func fileRemover(conn net.Conn, data []byte) error {
 }
 
 func connToID(conn net.Conn) (containerID string) {
-	port := strings.Split(conn.RemoteAddr().String(), ":")[1]
-	if id, ok := portToContainerID[port]; ok {
+	if id, ok := addressToContainerID[conn.RemoteAddr().String()]; ok {
 		return id
 	}
 	return ""
-}
-
-func addIDToMapping(containerID, port string) {
-	portToContainerID[port] = containerID
 }
 
 func dbInfoGet(conn net.Conn, data []byte) error {
@@ -353,6 +361,10 @@ func dbInfoRemove(containerID string) {
 
 func dataSend(conn net.Conn, data []byte) error {
 	id := connToID(conn)
+	if id == "" {
+		conn.Write(statusErr)
+		return errNoID
+	}
 	if v, ok := processMapping[id]; ok {
 		if v.immediate {
 			cmd := []byte(id + ":")
