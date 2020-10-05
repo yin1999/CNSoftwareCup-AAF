@@ -27,6 +27,7 @@ func init() {
 func mqSend(data []byte) {
 	node := &msgNode{
 		data: data,
+		next: nil,
 	}
 	mqMutex.Lock()
 	if mqHead == nil {
@@ -56,8 +57,8 @@ func mqPush() {
 			}
 		}
 		statusSend(connListener, mqHead.data)
-		listenerLock.Unlock()
 		mqHead = mqHead.next
+		listenerLock.Unlock()
 		mqMutex.Unlock()
 	}
 }

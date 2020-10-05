@@ -219,14 +219,11 @@ func execStart(conn net.Conn, data []byte) error {
 		conn.Write(statusErr)
 		return errTransferErr
 	}
-	ctx, cancel := context.WithCancel(p.ctx)
-	containerID, err := newProcess(ctx, p, argv, dbList)
+	containerID, err := newProcess(p.ctx, p, argv, dbList)
 	if err != nil {
 		conn.Write(statusErr)
-		cancel()
 		return err
 	}
-	processMapping[containerID] = processInfo{cancel: cancel, immediate: p.immediate}
 	conn.Write(statusOK) // response + containerID + "\x00"
 	conn.Write([]byte(containerID + "\x00"))
 	return err

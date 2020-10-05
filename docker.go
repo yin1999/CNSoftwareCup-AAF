@@ -37,9 +37,11 @@ var (
 	errNotSupport = errors.New("Path type not support")
 )
 
-func newProcess(ctx context.Context, p programInfo, argv string, dbList []dbInfo) (string, error) {
+func newProcess(ctxRoot context.Context, p programInfo, argv string, dbList []dbInfo) (string, error) {
+	ctx, cancel := context.WithCancel(ctxRoot)
 	cli, err := client.NewEnvClient()
 	if err != nil {
+		cancel()
 		return "", err
 	}
 	sess := sessionIDGen(16)
@@ -59,19 +61,24 @@ func newProcess(ctx context.Context, p programInfo, argv string, dbList []dbInfo
 	}, nil, nil, "")
 	if err != nil {
 		cli.Close()
+		cancel()
 		return "", err
 	}
 	if err = copyToContainer(ctx, cli, body.ID, "/app/", p.dir); err != nil {
 		cli.ContainerRemove(context.Background(), body.ID, types.ContainerRemoveOptions{Force: true})
 		cli.Close()
+		cancel()
 		return "", err
 	}
 	containerSessToID[sess] = body.ID
 	dbListMapping[body.ID] = dbList
+	processMapping[body.ID] = processInfo{cancel: cancel, immediate: p.immediate}
 	if err = cli.ContainerStart(ctx, body.ID, types.ContainerStartOptions{}); err != nil {
 		cli.ContainerRemove(context.Background(), body.ID, types.ContainerRemoveOptions{Force: true})
 		cli.Close()
+		cancel()
 		delete(containerSessToID, sess)
+		delete(processMapping, body.ID)
 		dbInfoRemove(body.ID)
 		return "", err
 	}
