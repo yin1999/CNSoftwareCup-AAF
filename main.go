@@ -135,8 +135,9 @@ func authForDocker(conn net.Conn, data []byte) error {
 	}
 	if v, ok := containerSessToID[sessionID(sess)]; ok {
 		addressToContainerID[conn.RemoteAddr().String()] = v
+		return nil
 	}
-	return nil
+	return errAuthFailed
 }
 
 func disconnectForDocker(conn net.Conn, data []byte) error {

@@ -4,7 +4,6 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -50,11 +49,11 @@ func newProcess(ctx context.Context, p programInfo, argv string, dbList []dbInfo
 	cmd := []string{"sh", "-c"}
 	switch p.file {
 	case python2:
-		cmd = append(cmd, "pip2 install -r requirements.txt && python2 main.py "+argv)
+		cmd = append(cmd, fmt.Sprintf("pip2 install -r requirements.txt && python2 main.py %s %s", sess, argv))
 	case python3:
-		cmd = append(cmd, "pip3 install -r requirements.txt && python3 main.py "+argv)
+		cmd = append(cmd, fmt.Sprintf("pip2 install -r requirements.txt && python3 main.py %s %s", sess, argv))
 	case golang:
-		cmd = append(cmd, "./main "+argv)
+		cmd = append(cmd, fmt.Sprintf("./main %s %s", sess, argv))
 	}
 	body, err := cli.ContainerCreate(ctx, &container.Config{
 		Image:      imageMapping[p.file],
@@ -96,9 +95,6 @@ func containerListenAndServe(ctx context.Context, cli *client.Client, containerI
 		if v.immediate == false {
 			if data, ok := dataMapping[containerID]; ok {
 				mqSend([]byte(fmt.Sprintf("data:%s\x00", containerID)))
-				sizeBuffer := bytes.NewBuffer([]byte{})
-				binary.Write(sizeBuffer, binary.BigEndian, uint32(len(data))) // file size
-				mqSend(append(sizeBuffer.Bytes(), 0))
 				mqSend(append(data, 0))
 			}
 		}

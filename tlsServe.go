@@ -7,7 +7,6 @@ import (
 	"crypto/tls"
 	"encoding/base64"
 	"errors"
-	"fmt"
 	"log"
 	"net"
 	"sync"
@@ -87,8 +86,7 @@ func tcpListener(ln net.Listener) <-chan net.Conn {
 
 func tcpConnectHandler(conn net.Conn, mapping map[string]tcpHandlerFunc) {
 	sess := sessionIDGen(12)
-	logger.Printf("New connect: %v.\n", sess)
-	fmt.Println(conn.RemoteAddr())
+	logger.Printf("New connect from %s: %s.\n", conn.RemoteAddr().String(), sess)
 	sessionMapping[sess] = conn
 	defer sessionClose(sess)
 	if f, ok := mapping["disconnect"]; ok {
