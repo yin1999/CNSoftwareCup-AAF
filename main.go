@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 )
@@ -197,31 +198,24 @@ func execStart(conn net.Conn, data []byte) error {
 
 	// transfer dbInfo
 	// number of database(1 byte) +
-	// db Type; db Address; db userName; db password; ....(repeat) + "\x00"
+	// db Type; db Address; db userName; db password + "\x00" ....(repeat)
 	num := make([]byte, 1)
 	conn.Read(num)
 	dbList := make([]dbInfo, int(num[0]))
-	flag := true
+	flag := false
 	for i := byte(0); i < num[0]; i++ {
-		dbList[i].DBType, err = readString(';', r)
-		if err != nil {
-			flag = false
+		info, err := readString(0, r)
+		l := strings.Split(info, ";")
+		if err != nil || len(l) != 4 {
+			flag = true
+			continue
 		}
-		dbList[i].DBAddr, err = readString(';', r)
-		if err != nil {
-			flag = false
-		}
-		dbList[i].DBUserName, err = readString(';', r)
-		if err != nil {
-			flag = false
-		}
-		dbList[i].DBPassword, err = readString(';', r)
-		if err != nil {
-			flag = false
-		}
+		dbList[i].DBType = l[0]
+		dbList[i].DBAddr = l[1]
+		dbList[i].DBUserName = l[2]
+		dbList[i].DBPassword = l[3]
 	}
-	conn.Read(num)
-	if num[0] != 0 || flag == false { // end symbol
+	if flag {
 		conn.Write(statusErr)
 		return errTransferErr
 	}
@@ -290,15 +284,8 @@ func fileReceiver(conn net.Conn, data []byte) error {
 		return err
 	}
 	conn.Write(statusOK)
-	data = make([]byte, 5)
+	data = make([]byte, 4)
 	conn.Read(data)
-	if data[4] != 0 {
-		file.Close()
-		conn.Write(statusErr)
-		os.RemoveAll(path)
-		return errNotSupport
-	}
-	conn.Write(statusOK) // response
 	length := binary.BigEndian.Uint32(data[:4])
 	if _, err = io.CopyN(file, conn, int64(length)); err != nil {
 		conn.Write(statusErr)
