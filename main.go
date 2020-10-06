@@ -286,15 +286,15 @@ func fileReceiver(conn net.Conn, data []byte) error {
 	conn.Read(data)
 	length := binary.BigEndian.Uint32(data[:4])
 	if _, err = io.CopyN(file, conn, int64(length)); err != nil {
-		conn.Write(statusErr)
 		file.Close()
 		os.RemoveAll(path)
+		conn.Write(statusErr)
 		return err
 	}
 	file.Close()
 	if err = builder(s); err != nil {
-		conn.Write(statusErr)
 		os.RemoveAll(path)
+		conn.Write(statusErr)
 		return err
 	}
 	conn.Write([]byte(id + "\x00"))
