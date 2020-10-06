@@ -180,7 +180,7 @@ func execStart(conn net.Conn, data []byte) error {
 		conn.Write(statusErr)
 		return errTypeErr
 	}
-	id := programIndex(data)
+	id := programIndex(data) // programID
 	var p programInfo
 	var ok bool
 	if p, ok = programMapping[id]; !ok {
@@ -188,6 +188,7 @@ func execStart(conn net.Conn, data []byte) error {
 		return errNoID
 	}
 	conn.Write(statusOK) // response
+	// Get Argv
 	r := bufio.NewReader(conn)
 	argv, err := readString(0, r)
 	if err != nil {
@@ -210,10 +211,10 @@ func execStart(conn net.Conn, data []byte) error {
 			flag = true
 			continue
 		}
-		dbList[i].DBType = l[0]
-		dbList[i].DBAddr = l[1]
-		dbList[i].DBUserName = l[2]
-		dbList[i].DBPassword = l[3]
+		dbList[i].Type = l[0]
+		dbList[i].Addr = l[1]
+		dbList[i].UserName = l[2]
+		dbList[i].Password = l[3]
 	}
 	if flag {
 		conn.Write(statusErr)
