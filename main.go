@@ -162,6 +162,7 @@ func statusListenRegister(conn net.Conn, data []byte) error {
 	listenerLock.Unlock()
 	runtime.SetFinalizer(connListener, (net.Conn).Close)
 	conn.Write(statusOK)
+	logger.Printf("New Listener: %s.\n", conn.RemoteAddr().String())
 	return nil
 }
 
@@ -297,6 +298,7 @@ func fileReceiver(conn net.Conn, data []byte) error {
 		conn.Write(statusErr)
 		return err
 	}
+	conn.Write(statusOK)
 	conn.Write([]byte(id + "\x00"))
 	s.ctx, s.cancel = context.WithCancel(ctxRoot)
 	programMapping[programIndex(id)] = s
