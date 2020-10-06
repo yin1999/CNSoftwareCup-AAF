@@ -73,12 +73,16 @@ func newProcess(ctxRoot context.Context, p programInfo, argv string, dbList []db
 	containerSessToID[sess] = body.ID
 	dbListMapping[body.ID] = dbList
 	processMapping[body.ID] = processInfo{cancel: cancel, immediate: p.immediate}
+	if p.immediate == false {
+		dataStore(body.ID, nil)
+	}
 	if err = cli.ContainerStart(ctx, body.ID, types.ContainerStartOptions{}); err != nil {
 		cli.ContainerRemove(context.Background(), body.ID, types.ContainerRemoveOptions{Force: true})
 		cli.Close()
 		cancel()
 		delete(containerSessToID, sess)
 		delete(processMapping, body.ID)
+		dataRead(body.ID)
 		dbInfoRemove(body.ID)
 		return "", err
 	}
@@ -93,21 +97,17 @@ func containerListenAndServe(ctx context.Context, cli *client.Client, containerI
 	if err != nil {
 		logger.Printf("Exit with error: %s.\n", err.Error())
 	}
+	data := dataRead(containerID)
 	mqLock.Lock() // 互斥锁上锁
 	mqSend([]byte(fmt.Sprintf("stoped:%s:%d\x00", containerID, returnCode)))
-	if v, ok := processMapping[containerID]; ok {
-		if v.immediate == false {
-			if data, ok := dataMapping[containerID]; ok {
-				lengthBuf := int32Encoder(int32(len(data)))
-				mqSend([]byte(fmt.Sprintf("data:%s\x00", containerID)))
-				mqSend(lengthBuf)
-				mqSend(data)
-			}
-		}
+	if data != nil {
+		lengthBuf := int32Encoder(int32(len(data)))
+		mqSend([]byte(fmt.Sprintf("data:%s\x00", containerID)))
+		mqSend(lengthBuf)
+		mqSend(data)
 	}
 	mqLock.Unlock() // 互斥锁解锁
 	cli.ContainerRemove(context.Background(), containerID, types.ContainerRemoveOptions{Force: true})
-	dataRead(containerID)
 	dbInfoRemove(containerID)
 	processCancel(containerID)
 	cli.Close()
