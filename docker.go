@@ -37,6 +37,48 @@ var (
 	errNotSupport = errors.New("Path type not support")
 )
 
+func dockerRunCmd(file fileType, dir string) error {
+	ctx := context.Background()
+	cli, err := client.NewEnvClient()
+	if err != nil {
+		return err
+	}
+	defer cli.Close()
+	cmd := []string{"sh", "-c"}
+	switch file {
+	case python2:
+		cmd = append(cmd, "pip2 install -r requirements.txt && pylint --output-format=json --errors-only main.py")
+	case python3:
+		cmd = append(cmd, "pip3 install -r requirements.txt && pylint --output-format=json --errors-only main.py")
+	default:
+		return nil
+	}
+	body, err := cli.ContainerCreate(ctx, &container.Config{
+		Image:      imageMapping[file],
+		Cmd:        cmd,
+		WorkingDir: "/app",
+	}, nil, nil, "")
+	if err != nil {
+		return nil
+	}
+	defer cli.ContainerRemove(ctx, body.ID, types.ContainerRemoveOptions{Force: true})
+	if err = copyToContainer(ctx, cli, body.ID, "/app/", dir); err != nil {
+		return err
+	}
+	if err = cli.ContainerStart(ctx, body.ID, types.ContainerStartOptions{}); err != nil {
+		return err
+	}
+	returnCode, err := cli.ContainerWait(ctx, body.ID)
+	if err != nil {
+		return execErr{
+			cmd:     "pylint",
+			errMsg:  "check failed",
+			errCode: int(returnCode),
+		}
+	}
+	return nil
+}
+
 func newProcess(ctxRoot context.Context, p programInfo, argv string, dbList []dbInfo) (string, error) {
 	ctx, cancel := context.WithCancel(ctxRoot)
 	cli, err := client.NewEnvClient()

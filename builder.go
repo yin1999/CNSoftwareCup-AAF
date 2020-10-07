@@ -3,18 +3,20 @@ package main
 import (
 	"fmt"
 	"io/ioutil"
+	"os"
 	"os/exec"
+	"path/filepath"
 )
 
 const (
 	execGo = "/usr/bin/go"
-	execPy = "/usr/local/bin/pipreqs"
+	execPy = "/usr/local/bin/pylint"
 )
 
 type execErr struct {
-	cmd    string
-	path   string
-	errMsg string
+	cmd     string
+	errMsg  string
+	errCode int
 }
 
 func builder(p programInfo) error {
@@ -31,21 +33,17 @@ func builder(p programInfo) error {
 }
 
 func py2Builder(dir string) error {
-	cmd := exec.Cmd{
-		Path: execPy,
-		Args: []string{execPy, "./"},
-		Dir:  dir,
+	if err := resolveDepends(dir); err != nil {
+		return err
 	}
-	return runCmd(&cmd)
+	return dockerRunCmd(python3, dir)
 }
 
 func py3Builder(dir string) error {
-	cmd := exec.Cmd{
-		Path: execPy,
-		Args: []string{execPy, "./"},
-		Dir:  dir,
+	if err := resolveDepends(dir); err != nil {
+		return err
 	}
-	return runCmd(&cmd)
+	return dockerRunCmd(python3, dir)
 }
 
 func goBuilder(dir string) error {
@@ -71,30 +69,57 @@ func goBuilder(dir string) error {
 }
 
 func (t execErr) Error() string {
-	return fmt.Sprintf("cmd: %s, path: %s, errMsg: %s", t.cmd, t.path, t.errMsg)
+	return fmt.Sprintf("cmd: %s return %d, errMsg: %s", t.cmd, t.errCode, t.errMsg)
 }
 
 func runCmd(cmd *exec.Cmd) error {
-	out, err := cmd.StderrPipe()
+	stdOut, _ := cmd.StdoutPipe()
+	var err error
 	if err = cmd.Start(); err != nil {
 		return err
 	}
+	out, _ := ioutil.ReadAll(stdOut)
 	err = cmd.Wait()
 	if err != nil {
-		buf, _ := ioutil.ReadAll(out)
 		var cmdStr string
 		if len(cmd.Args) == 0 {
 			cmdStr = cmd.Path
 		} else {
 			cmdStr = cmd.Path + " " + cmd.Args[0]
 		}
-		if len(buf) != 0 {
-			return execErr{
-				cmd:    cmdStr,
-				path:   cmd.Dir,
-				errMsg: string(buf),
-			}
+		return execErr{
+			cmd:     cmdStr,
+			errMsg:  string(out),
+			errCode: cmd.ProcessState.ExitCode(),
 		}
 	}
 	return err
+}
+
+func resolveDepends(dir string) error {
+	if dir[len(dir)-1] != filepath.Separator {
+		dir = string(append([]byte(dir), filepath.Separator))
+	}
+	out, err := os.OpenFile(dir+"requirements.txt", os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	f, err := os.Open(dir + "main.py")
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	var line string
+	fmt.Fscanln(f, &line)
+	if line != "# requests" {
+		return nil
+	}
+	for {
+		fmt.Fscanln(f, &line)
+		if line == "# end" {
+			return nil
+		}
+		out.WriteString(line[1:] + "\n")
+	}
 }
