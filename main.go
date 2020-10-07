@@ -96,6 +96,7 @@ func main() {
 	tcpConnectHandleRegister("listen", statusListenRegister, nil)
 	tcpConnectHandleRegister("start", execStart, nil)
 	tcpConnectHandleRegister("stop", execStop, nil)
+	tcpConnectHandleRegister("disconnect", disconnectForListener, nil)
 	tcpConnectHandleRegister("auth", authForDocker, tcpForDocker)
 	tcpConnectHandleRegister("disconnect", disconnectForDocker, tcpForDocker)
 	tcpConnectHandleRegister("dbList", dbInfoGet, tcpForDocker)
@@ -146,6 +147,16 @@ func authForDocker(conn net.Conn, data []byte) error {
 
 func disconnectForDocker(conn net.Conn, data []byte) error {
 	delete(addressToContainerID, conn.RemoteAddr().String())
+	return nil
+}
+
+func disconnectForListener(conn net.Conn, data []byte) error {
+	listenerLock.Lock()
+	if connListener.RemoteAddr() == conn.RemoteAddr() {
+		connListener = nil
+		runtime.SetFinalizer(conn, nil)
+	}
+	listenerLock.Unlock()
 	return nil
 }
 
