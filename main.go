@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net"
 	"os"
 	"path/filepath"
@@ -93,6 +94,7 @@ func main() {
 	tcpConnectHandleRegister("auth", authIn, nil)
 	tcpConnectHandleRegister("fileTransfer", fileReceiver, nil)
 	tcpConnectHandleRegister("removeFile", fileRemover, nil)
+	tcpConnectHandleRegister("getFile", getFile, nil)
 	tcpConnectHandleRegister("listen", statusListenRegister, nil)
 	tcpConnectHandleRegister("start", execStart, nil)
 	tcpConnectHandleRegister("stop", execStop, nil)
@@ -299,13 +301,11 @@ func fileReceiver(conn net.Conn, data []byte) error {
 	length := binary.BigEndian.Uint32(data[:4])
 	if _, err = io.CopyN(file, conn, int64(length)); err != nil {
 		file.Close()
-		os.RemoveAll(path)
 		conn.Write(statusErr)
 		return err
 	}
 	file.Close()
 	if err = builder(s); err != nil {
-		os.RemoveAll(path)
 		conn.Write(statusErr)
 		return err
 	}
@@ -315,6 +315,31 @@ func fileReceiver(conn net.Conn, data []byte) error {
 	programMapping[programIndex(id)] = s
 	s.cfgStore()
 	return err
+}
+
+func getFile(conn net.Conn, data []byte) error {
+	id := programIndex(data)
+	v, ok := programMapping[id]
+	if !ok {
+		conn.Write(statusErr)
+		return errNoMapping
+	}
+	var fileName string
+	switch v.file {
+	case python2, python3:
+		fileName = v.dir + "/main.py"
+	case golang:
+		fileName = v.dir + "main.go"
+	}
+	buf, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		conn.Write(statusErr)
+		return err
+	}
+	length := int32Encoder(int32(len(buf)))
+	conn.Write(length)
+	conn.Write(buf)
+	return nil
 }
 
 // fileRemover
