@@ -278,6 +278,11 @@ func fileReceiver(conn net.Conn, data []byte) error {
 	case 2:
 		s.file = python3
 		fileName += "py"
+		f, _ := os.Open("source/driver.py")
+		w, _ := os.OpenFile(path+"/driver.py", os.O_CREATE|os.O_WRONLY, 0644)
+		io.Copy(w, f)
+		f.Close()
+		w.Close()
 	case 3:
 		s.file = golang
 		fileName += "go"
