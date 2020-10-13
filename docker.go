@@ -31,7 +31,7 @@ const (
 var (
 	imageMapping = map[fileType]string{
 		python2: "registry-vpc.cn-shanghai.aliyuncs.com/yin199909/centos_7:origin",
-		python3: "registry-vpc.cn-shanghai.aliyuncs.com/yin199909/centos_7:python3.6",
+		python3: "registry-vpc.cn-shanghai.aliyuncs.com/yin199909/centos_7:python3",
 		golang:  "registry-vpc.cn-shanghai.aliyuncs.com/yin199909/centos_7:origin",
 	}
 	errNotSupport = errors.New("Path type not support")
