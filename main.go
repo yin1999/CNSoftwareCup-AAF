@@ -41,6 +41,7 @@ const (
 )
 
 var (
+	bufferSlice          = 2048
 	ctxRoot              context.Context
 	ctxRootCancel        context.CancelFunc
 	errAuthFailed        = errors.New("Auth failed, key error")
@@ -129,7 +130,6 @@ func authIn(conn net.Conn, data []byte) error {
 		conn.Write(statusOK)
 		return nil
 	}
-	conn.SetWriteDeadline(time.Now().Add(3 * time.Second))
 	conn.Write(statusErr)
 	return errAuthFailed
 }
@@ -142,7 +142,6 @@ func authForDocker(conn net.Conn, data []byte) error {
 		conn.Write(statusOK)
 		return nil
 	}
-	conn.SetWriteDeadline(time.Now().Add(3 * time.Second))
 	conn.Write(statusErr)
 	return errAuthFailed
 }
@@ -181,10 +180,14 @@ func statusListenRegister(conn net.Conn, data []byte) error {
 
 func statusSend(conn net.Conn, data []byte) {
 	if connListener != nil {
-		connListener.SetWriteDeadline(time.Now().Add(3 * time.Second))
-		if _, err := connListener.Write(data); err != nil {
-			connListener.Close()
-			runtime.SetFinalizer(connListener, nil)
+		length := len(data)
+		i := bufferSlice
+		for ; i <= length; i += bufferSlice {
+			connListener.Write(data[i-bufferSlice : i])
+			time.Sleep(40 * time.Millisecond)
+		}
+		if length%bufferSlice != 0 {
+			connListener.Write(data[i-bufferSlice:])
 		}
 	}
 }
@@ -403,9 +406,16 @@ func dataSend(conn net.Conn, data []byte) error {
 	if v, ok := processMapping[id]; ok {
 		data = make([]byte, 4)
 		conn.Read(data)
-		length := binary.BigEndian.Uint32(data)
+		length := int(binary.BigEndian.Uint32(data))
 		raw := make([]byte, length)
-		conn.Read(raw)
+		i := bufferSlice
+		for ; i <= length; i += bufferSlice {
+			conn.Read(raw[i-bufferSlice : i])
+		}
+		if length%bufferSlice != 0 {
+			conn.Read(raw[i-bufferSlice:])
+		}
+		fmt.Println(string(data))
 		if v.immediate {
 			mqLock.Lock()
 			mqSend([]byte(fmt.Sprintf("data:%s\x00", id)))

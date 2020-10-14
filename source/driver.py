@@ -1,6 +1,7 @@
 import socket
 import sys
 import json
+import time
 
 Msql = 'mysql'
 SQL = 'sqlserver'
@@ -13,6 +14,7 @@ _init = False
 _args = object
 _zero = '\x00'.encode()
 _statusOK = 'ok'
+_step = 2048
 
 class DBInfo:
     def __init__(self):
@@ -40,12 +42,19 @@ def __init__():
 def send(data: str) -> int:
     __init__()
     global _s
+    data = data.encode()
     length = len(data)
     l = _int32Encoder(length)
     _s.send("send\0".encode())
     if _receive() == "ok":
         _s.send(l)
-        _s.send(data.encode())
+        i = _step
+        while i <= length:
+            _s.send(data[i-_step:i])
+            time.sleep(0.035)
+            i += _step
+        if length% _step != 0:
+            _s.send(data[i-_step:])
         if _receive() == "ok":
             return 0
     return -1
@@ -79,7 +88,6 @@ def getDBList() ->list:
         t.Password = v['password']
         L.append(t)
     return L
-
 
 def _int32Encoder(num: int) -> bytes:
     l = [0,0,0,0]
