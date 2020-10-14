@@ -134,18 +134,33 @@ func newProcess(ctxRoot context.Context, p programInfo, argv string, dbList []db
 		dbInfoRemove(body.ID)
 		return "", err
 	}
-	go containerListenAndServe(ctx, cli, body.ID, sess)
+	go containerListenAndServe(ctx, cli, body.ID, sess, p)
 	return body.ID, nil
 }
 
 // TODO
-func containerListenAndServe(ctx context.Context, cli *client.Client, containerID string, sess sessionID) {
+func containerListenAndServe(ctx context.Context, cli *client.Client, containerID string, sess sessionID, p programInfo) {
 	returnCode, err := cli.ContainerWait(ctx, containerID)
 	logger.Printf("Container: %s return %d.\n", containerID, returnCode)
 	if err != nil {
 		logger.Printf("Exit with error: %s.\n", err.Error())
 	}
-	data := dataRead(containerID)
+	var data []byte
+	// data = dataRead(containerID)
+	if p.immediate == false {
+		r, _ := cli.ContainerLogs(ctx, containerID, types.ContainerLogsOptions{ShowStdout: true})
+		d, _ := ioutil.ReadAll(r)
+		for i := range d {
+			if d[i] == '[' {
+				data = d[i:]
+			}
+		}
+		if len(data) == 0 {
+			data = dataRead(containerID)
+		} else {
+			dataRead(containerID)
+		}
+	}
 	mqLock.Lock() // 互斥锁上锁
 	mqSend([]byte(fmt.Sprintf("stoped:%s:%d\x00", containerID, returnCode)))
 	if data != nil {
