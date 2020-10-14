@@ -415,7 +415,6 @@ func dataSend(conn net.Conn, data []byte) error {
 		if length%bufferSlice != 0 {
 			conn.Read(raw[i-bufferSlice:])
 		}
-		fmt.Println(string(data))
 		if v.immediate {
 			mqLock.Lock()
 			mqSend([]byte(fmt.Sprintf("data:%s\x00", id)))
