@@ -112,12 +112,12 @@ func resolveDepends(dir string) error {
 	defer f.Close()
 	var line string
 	fmt.Fscanln(f, &line)
-	if line != "# requests" {
+	if line != "#requests" {
 		return nil
 	}
 	for {
 		fmt.Fscanln(f, &line)
-		if line == "# end" {
+		if line == "#end" {
 			return nil
 		}
 		out.WriteString(line[1:] + "\n")
