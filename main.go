@@ -154,7 +154,7 @@ func disconnectForDocker(conn net.Conn, data []byte) error {
 
 func disconnectForListener(conn net.Conn, data []byte) error {
 	listenerLock.Lock()
-	if connListener.RemoteAddr() == conn.RemoteAddr() {
+	if connListener != nil && connListener.RemoteAddr() == conn.RemoteAddr() {
 		connListener = nil
 		runtime.SetFinalizer(conn, nil)
 	}

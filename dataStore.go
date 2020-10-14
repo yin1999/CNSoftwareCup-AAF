@@ -5,25 +5,31 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"sync"
 )
 
 var (
-	dataMapping = make(map[string][]byte)
-	py2File     = []byte{0}
-	py3File     = []byte{1}
-	goFile      = []byte{2}
+	dataMapping     = make(map[string][]byte)
+	dataMappingLock = sync.Mutex{}
+	py2File         = []byte{0}
+	py3File         = []byte{1}
+	goFile          = []byte{2}
 )
 
 func dataStore(containerID string, data []byte) {
+	dataMappingLock.Lock()
 	if v, ok := dataMapping[containerID]; ok {
 		dataMapping[containerID] = append(v, data...)
 	} else {
 		dataMapping[containerID] = data
 	}
+	dataMappingLock.Unlock()
 }
 
 // Read Data and remove the mapping
 func dataRead(containerID string) []byte {
+	dataMappingLock.Lock()
+	defer dataMappingLock.Unlock()
 	if v, ok := dataMapping[containerID]; ok {
 		delete(dataMapping, containerID)
 		return v
