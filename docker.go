@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 
@@ -70,9 +71,14 @@ func dockerRunCmd(file fileType, dir string) error {
 	}
 	returnCode, err := cli.ContainerWait(ctx, body.ID)
 	if err != nil {
+		return err
+	}
+	if returnCode != 0 {
+		r, _ := cli.ContainerLogs(ctx, body.ID, types.ContainerLogsOptions{ShowStderr: true})
+		msg, _ := ioutil.ReadAll(r)
 		return execErr{
-			cmd:     "pylint",
-			errMsg:  "check failed",
+			cmd:     "docker check code",
+			errMsg:  string(msg),
 			errCode: int(returnCode),
 		}
 	}

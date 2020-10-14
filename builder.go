@@ -22,9 +22,9 @@ type execErr struct {
 func builder(p programInfo) error {
 	switch p.file {
 	case python2:
-		return py2Builder(pwd + p.dir)
+		return py2Builder(p.dir)
 	case python3:
-		return py3Builder(pwd + p.dir)
+		return py3Builder(p.dir)
 	case golang:
 		return goBuilder(pwd + p.dir)
 	default:
