@@ -20,6 +20,7 @@ class DBInfo:
     def __init__(self):
         self.Type = ''
         self.Addr = ''
+        self.Database = ''
         self.UserName = ''
         self.Password = ''
 
@@ -42,17 +43,16 @@ def __init__():
 def send(data: str) -> int:
     __init__()
     global _s
-    data = data.encode()
     length = len(data)
     l = _int32Encoder(length)
     _s.send("send\0".encode())
+    data = data.encode()
     if _receive() == "ok":
         _s.send(l)
         i = _step
         while i <= length:
             _s.send(data[i-_step:i])
             time.sleep(0.05)
-            i += _step
         if length% _step != 0:
             _s.send(data[i-_step:])
         if _receive() == "ok":
@@ -73,7 +73,7 @@ def _receive() -> str:
     
     return tmp
     
-# return a list of DBInfo which contains Type(db type), Addr(db address), UserName(db username), Password(db password)
+# return a list of DBInfo which contains Type(db type), Addr(db address), UserName(db username), Password(db password), Database(db database)
 def getDBList() ->list:
     global _s
     _s.send("dbList\0".encode())
@@ -84,6 +84,7 @@ def getDBList() ->list:
         t = DBInfo()
         t.Type = v['type']
         t.Addr = v['addr']
+        t.Database = v['database']
         t.UserName = v['username']
         t.Password = v['password']
         L.append(t)
