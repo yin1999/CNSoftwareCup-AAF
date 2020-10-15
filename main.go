@@ -216,7 +216,7 @@ func execStart(conn net.Conn, data []byte) error {
 
 	// transfer dbInfo
 	// number of database(1 byte) +
-	// db Type; db Address; db userName; db password + "\x00" ....(repeat)
+	// db Type; db Address; db database; db userName; db password + "\x00" ....(repeat)
 	num := make([]byte, 1)
 	conn.Read(num)
 	dbList := make([]dbInfo, int(num[0]))
@@ -224,14 +224,15 @@ func execStart(conn net.Conn, data []byte) error {
 	for i := byte(0); i < num[0]; i++ {
 		info, err := readString(0, r)
 		l := strings.Split(info, ";")
-		if err != nil || len(l) != 4 {
+		if err != nil || len(l) != 5 {
 			flag = true
 			continue
 		}
 		dbList[i].Type = l[0]
 		dbList[i].Addr = l[1]
-		dbList[i].UserName = l[2]
-		dbList[i].Password = l[3]
+		dbList[i].Database = l[2]
+		dbList[i].UserName = l[3]
+		dbList[i].Password = l[4]
 	}
 	if flag {
 		conn.Write(statusErr)
