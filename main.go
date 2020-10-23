@@ -125,11 +125,14 @@ func listSession(param ...string) {
 
 func authIn(conn net.Conn, data []byte) error {
 	r := bufio.NewReader(conn)
+	conn.SetReadDeadline(time.Now().Add(10 * time.Second))
 	data, _ = readBytes(0, r)
 	if string(data) == key {
 		conn.Write(statusOK)
+		conn.SetReadDeadline(time.Time{})
 		return nil
 	}
+	conn.SetWriteDeadline(time.Now().Add(3 * time.Second))
 	conn.Write(statusErr)
 	return errAuthFailed
 }

@@ -40,7 +40,6 @@ func NewMultiLogger(recordingTime time.Duration, dir string) *MultiLogger {
 		done:   make(chan struct{}),
 	}
 	go logger.logMaintainer(recordingTime, dir)
-	runtime.SetFinalizer(logger, (*MultiLogger).Done)
 	return logger
 }
 
@@ -61,7 +60,7 @@ func (logger *MultiLogger) logMaintainer(recordingTime time.Duration, dir string
 				logger.Println(err)
 				continue
 			}
-			runtime.SetFinalizer(file, file.Close)
+			runtime.SetFinalizer(file, (*os.File).Close)
 			logger.Logger = newLogger(file, os.Stdout)
 		case <-logger.done:
 			return
@@ -78,5 +77,4 @@ func newLogger(writers ...io.Writer) *log.Logger {
 func (logger *MultiLogger) Done() {
 	logger.done <- struct{}{}
 	logger.Logger = nil
-	runtime.SetFinalizer(logger, nil)
 }
