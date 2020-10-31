@@ -7,7 +7,6 @@ import (
 	"crypto/tls"
 	"encoding/base64"
 	"errors"
-	"log"
 	"net"
 	"sync"
 )
@@ -107,7 +106,7 @@ func tcpConnectHandler(conn net.Conn, mapping map[string]tcpHandlerFunc) {
 		}
 		cmd, data := dataSplit(msg)
 		if f, ok := mapping[cmd]; ok {
-			log.Printf("session: %s, cmd: %s.\n", sess, cmd)
+			logger.Printf("session: %s, cmd: %s.\n", sess, cmd)
 			err = f(conn, data)
 			switch err {
 			case errCloseConnect:
