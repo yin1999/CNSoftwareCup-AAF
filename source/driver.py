@@ -52,8 +52,9 @@ def send(data: str) -> int:
         i = _step
         while i <= length:
             _s.send(data[i-_step:i])
+            i += _step
             time.sleep(0.05)
-        if length% _step != 0:
+        if length % _step != 0:
             _s.send(data[i-_step:])
         if _receive() == "ok":
             return 0
