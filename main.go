@@ -411,6 +411,7 @@ func dataSend(conn net.Conn, data []byte) error {
 		data = make([]byte, 4)
 		conn.Read(data)
 		length := int(binary.BigEndian.Uint32(data))
+		logger.Printf("buffer length: %d\n", length)
 		raw := make([]byte, length)
 		i := bufferSlice
 		for ; i <= length; i += bufferSlice {
@@ -429,6 +430,7 @@ func dataSend(conn net.Conn, data []byte) error {
 			dataStore(id, raw)
 		}
 		conn.Write(statusOK)
+		logger.Print("Send done\n")
 		return nil
 	}
 	conn.Close()
