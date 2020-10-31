@@ -420,6 +420,7 @@ func dataSend(conn net.Conn, data []byte) error {
 		if length%bufferSlice != 0 {
 			conn.Read(raw[i-bufferSlice:])
 		}
+		conn.Write(statusOK)
 		if v.immediate {
 			mqLock.Lock()
 			mqSend([]byte(fmt.Sprintf("data:%s\x00", id)))
@@ -429,7 +430,6 @@ func dataSend(conn net.Conn, data []byte) error {
 		} else {
 			dataStore(id, raw)
 		}
-		conn.Write(statusOK)
 		logger.Print("Send done\n")
 		return nil
 	}
