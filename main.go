@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/binary"
@@ -413,13 +414,15 @@ func dataSend(conn net.Conn, data []byte) error {
 		length := int(binary.BigEndian.Uint32(data))
 		logger.Printf("buffer length: %d\n", length)
 		raw := make([]byte, length)
-		i := bufferSlice
-		for ; i <= length; i += bufferSlice {
-			conn.Read(raw[i-bufferSlice : i])
-		}
-		if length%bufferSlice != 0 {
-			conn.Read(raw[i-bufferSlice:])
-		}
+		// i := bufferSlice
+		// for ; i <= length; i += bufferSlice {
+		// 	conn.Read(raw[i-bufferSlice : i])
+		// }
+		// if length%bufferSlice != 0 {
+		// 	conn.Read(raw[i-bufferSlice:])
+		// }
+		buf := bytes.NewBuffer(raw) // 改为使用io.CopyN接收数据
+		io.CopyN(buf, conn, int64(length))
 		conn.Write(statusOK)
 		if v.immediate {
 			mqLock.Lock()
